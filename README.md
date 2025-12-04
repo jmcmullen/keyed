@@ -1,53 +1,80 @@
-# keyed
+# Keyed
 
-This project was created with [Better-T-Stack](https://github.com/AmanVarshney01/create-better-t-stack), a modern TypeScript stack.
+**DJ BPM & Key Finder**
+
+Detect the key and BPM of any song playing around you, completely offline. Built for DJs mixing vinyl and digital.
 
 ## Features
 
-- **TypeScript** - For type safety and improved developer experience
-- **React Native** - Build mobile apps using React
-- **Expo** - Tools for React Native development
-- **TailwindCSS** - Utility-first CSS for rapid UI development
-- **shadcn/ui** - Reusable UI components
-- **Biome** - Linting and formatting
-- **Turborepo** - Optimized monorepo build system
+- **Real-time detection** — Instantly identifies BPM and musical key via your device's microphone
+- **Confidence scoring** — See how accurate each reading is
+- **Fully offline** — No internet required, no data leaves your device
+- **Cross-platform** — Available on iOS and Android
 
-## Getting Started
+## Privacy
 
-First, install the dependencies:
+Keyed processes all audio locally on your device. No audio data, song information, or usage analytics are ever collected or transmitted. Your listening stays private.
+
+## Tech Stack
+
+- [Expo](https://expo.dev) / React Native
+- TypeScript
+- [react-native-unistyles](https://github.com/jpudysz/react-native-unistyles) for styling
+- [TanStack Query](https://tanstack.com/query) for state management
+- Turborepo monorepo structure
+
+## Development
+
+### Prerequisites
+
+- [Bun](https://bun.sh) v1.2.16+
+- iOS Simulator / Android Emulator or physical device
+- Xcode (for iOS) / Android Studio (for Android)
+
+### Setup
 
 ```bash
+# Clone the repository
+git clone https://github.com/jmcmullen/keyed.git
+cd keyed
+
+# Install dependencies
 bun install
+
+# Start the development server
+bun run dev:native
 ```
 
+### Scripts
 
-Then, run the development server:
-
-```bash
-bun run dev
-```
-
-Use the Expo Go app to run the mobile application.
-
-
-
-
-
-
+| Command | Description |
+|---------|-------------|
+| `bun run dev:native` | Start Expo development server |
+| `bun run build` | Build all packages |
+| `bun run check` | Run linting and formatting |
+| `bun run check-types` | TypeScript type checking |
 
 ## Project Structure
 
 ```
 keyed/
 ├── apps/
-│   ├── native/      # Mobile application (React Native, Expo)
+│   └── native/       # React Native mobile app
+├── packages/
+│   └── config/       # Shared TypeScript configuration
+└── ...
 ```
 
-## Available Scripts
+## Contributing
 
-- `bun run dev`: Start all applications in development mode
-- `bun run build`: Build all applications
-- `bun run dev:web`: Start only the web application
-- `bun run check-types`: Check TypeScript types across all apps
-- `bun run dev:native`: Start the React Native/Expo development server
-- `bun run check`: Run Biome formatting and linting
+Contributions are welcome. Please open an issue first to discuss what you'd like to change.
+
+1. Fork the repository
+2. Create your branch (`git checkout -b feature/your-feature`)
+3. Commit your changes
+4. Push to the branch
+5. Open a pull request
+
+## License
+
+[MIT](LICENSE)
