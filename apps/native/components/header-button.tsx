@@ -6,7 +6,7 @@ import { StyleSheet } from "react-native-unistyles";
 export const HeaderButton = forwardRef<
 	typeof Pressable,
 	{ onPress?: () => void }
->(({ onPress }, ref) => {
+>(({ onPress }, _ref) => {
 	return (
 		<Pressable onPress={onPress} style={styles.button}>
 			{({ pressed }) => (

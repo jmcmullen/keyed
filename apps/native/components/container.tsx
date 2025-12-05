@@ -1,4 +1,4 @@
-import React from "react";
+import type React from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { StyleSheet } from "react-native-unistyles";
 
