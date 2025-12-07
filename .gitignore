@@ -48,3 +48,8 @@ coverage
 .cache
 tmp
 temp
+
+# Python virtual environment
+.venv
+__pycache__
+*.pyc
