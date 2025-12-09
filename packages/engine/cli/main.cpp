@@ -9,7 +9,9 @@
 
 #include "Engine.hpp"
 #include <atomic>
+#include <cerrno>
 #include <chrono>
+#include <climits>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -139,7 +141,20 @@ int main(int argc, char* argv[]) {
 			listOnly = true;
 		} else if (strcmp(argv[i], "-d") == 0 || strcmp(argv[i], "--device") == 0) {
 			if (i + 1 < argc) {
-				deviceIndex = atoi(argv[++i]);
+				const char* arg = argv[++i];
+				char* endptr;
+				errno = 0;
+				long val = strtol(arg, &endptr, 10);
+
+				if (errno == ERANGE || val < 0 || val > INT_MAX) {
+					fprintf(stderr, "Error: device index '%s' out of range\n", arg);
+					return 1;
+				}
+				if (endptr == arg || *endptr != '\0') {
+					fprintf(stderr, "Error: invalid device index '%s'\n", arg);
+					return 1;
+				}
+				deviceIndex = static_cast<int>(val);
 			} else {
 				fprintf(stderr, "Error: -d requires a device index\n");
 				return 1;
@@ -187,6 +202,12 @@ int main(int argc, char* argv[]) {
 
 		if (ma_context_get_devices(&context, &playbackDevices, &playbackDeviceCount, &captureDevices, &captureDeviceCount) != MA_SUCCESS) {
 			fprintf(stderr, "Error: Failed to enumerate devices\n");
+			ma_context_uninit(&context);
+			return 1;
+		}
+
+		if (captureDeviceCount == 0) {
+			fprintf(stderr, "Error: No capture devices available\n");
 			ma_context_uninit(&context);
 			return 1;
 		}
