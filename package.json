@@ -1,23 +1,30 @@
 {
-  "name": "keyed",
-  "private": true,
-  "type": "module",
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
-  "scripts": {
-    "check": "biome check --write .",
-    "dev": "turbo dev",
-    "build": "turbo build",
-    "check-types": "turbo check-types",
-    "dev:native": "turbo -F native dev",
-    "dev:web": "turbo -F web dev"
-  },
-  "dependencies": {},
-  "devDependencies": {
-    "turbo": "^2.5.4",
-    "@biomejs/biome": "^2.2.0"
-  },
-  "packageManager": "bun@1.2.16"
+	"name": "keyed",
+	"private": true,
+	"type": "module",
+	"workspaces": [
+		"apps/*",
+		"packages/*"
+	],
+	"scripts": {
+		"check": "biome check --write .",
+		"dev": "turbo dev",
+		"build": "turbo build",
+		"check-types": "turbo check-types",
+		"dev:native": "turbo -F native dev",
+		"dev:web": "turbo -F web dev",
+		"test:native": "cd packages/engine/tests && cmake -B build && cmake --build build && ./build/engine_tests",
+		"test:native:build": "cd packages/engine/tests && cmake -B build && cmake --build build",
+		"test:native:run": "cd packages/engine/tests && ./build/engine_tests",
+		"test:native:golden": "python scripts/generate-golden-files.py"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.2.0",
+		"onnxruntime-node": "^1.23.2",
+		"turbo": "^2.5.4"
+	},
+	"packageManager": "bun@1.2.16",
+	"trustedDependencies": [
+		"@siteed/react-native-essentia"
+	]
 }

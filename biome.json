@@ -11,6 +11,7 @@
 			"**",
 			"!**/.next",
 			"!**/dist",
+			"!**/build",
 			"!**/.turbo",
 			"!**/dev-dist",
 			"!**/.zed",
@@ -24,7 +25,8 @@
 			"!**/.alchemy",
 			"!**/.svelte-kit",
 			"!**/wrangler.jsonc",
-			"!**/.source"
+			"!**/.source",
+			"!**/.venv"
 		]
 	},
 	"formatter": {

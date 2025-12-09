@@ -1,0 +1,34 @@
+{
+	"name": "@keyed/engine",
+	"version": "0.1.0",
+	"description": "Native audio processing engine for beat detection",
+	"main": "src/index.ts",
+	"types": "src/index.ts",
+	"scripts": {
+		"build": "expo-module build",
+		"clean": "expo-module clean"
+	},
+	"keywords": [
+		"react-native",
+		"expo",
+		"engine",
+		"Engine"
+	],
+	"repository": "https://github.com/jmcmullen/keyed",
+	"bugs": {
+		"url": "https://github.com/jmcmullen/keyed/issues"
+	},
+	"author": "Jay McMullen <jay@session.services> (https://github.com/jmcmullen)",
+	"license": "MIT",
+	"homepage": "https://github.com/jmcmullen/keyed#readme",
+	"dependencies": {},
+	"devDependencies": {
+		"@types/react": "~19.1.0",
+		"expo-module-scripts": "^5.0.8"
+	},
+	"peerDependencies": {
+		"expo": "*",
+		"react": "*",
+		"react-native": "*"
+	}
+}

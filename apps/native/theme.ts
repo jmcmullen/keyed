@@ -1,8 +1,23 @@
 const sharedColors = {
 	success: "#22C55E",
 	destructive: "#EF4444",
+	destructiveForeground: "#FFFFFF",
 	warning: "#F59E0B",
 	info: "#3B82F6",
+	// CDJ-style colors
+	cdj: {
+		background: "#000408",
+		waveform: {
+			low: "#1a4a5c",
+			mid: "#4aa8d8",
+			high: "#8dd4f0",
+			peak: "#b8e8ff",
+		},
+		bpmBackground: "#f59e0b",
+		bpmText: "#000000",
+		textMuted: "#4a5568",
+		textSecondary: "#718096",
+	},
 } as const;
 
 export const lightTheme = {
