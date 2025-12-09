@@ -52,9 +52,13 @@ void audioCallback(ma_device* device, void* output, const void* input, ma_uint32
 	static constexpr int MAX_RESULTS = 8;
 	Engine::FrameResult results[MAX_RESULTS];
 
-	std::lock_guard<std::mutex> lock(g_mutex);
-	int numResults = g_engine.processAudio(samples, static_cast<int>(frameCount), results, MAX_RESULTS);
-	g_frameCount += numResults;
+	// Use try_lock to avoid blocking the real-time audio thread
+	// Skip this frame if mutex is busy rather than risk priority inversion
+	if (g_mutex.try_lock()) {
+		int numResults = g_engine.processAudio(samples, static_cast<int>(frameCount), results, MAX_RESULTS);
+		g_frameCount += numResults;
+		g_mutex.unlock();
+	}
 }
 
 void printUsage(const char* progName) {
@@ -102,9 +106,14 @@ void printStatus() {
 	auto now = std::chrono::steady_clock::now();
 	auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - g_startTime).count();
 
-	// Get BPM
-	float bpm = g_engine.getBpm();
-	size_t frameCount = g_engine.getFrameCount();
+	// Get BPM (hold mutex briefly to read engine state)
+	float bpm;
+	size_t frameCount;
+	{
+		std::lock_guard<std::mutex> lock(g_mutex);
+		bpm = g_engine.getBpm();
+		frameCount = g_engine.getFrameCount();
+	}
 
 	if (bpm > 0) {
 		printf("\r[%02lld:%02lld] BPM: %5.0f | frames: %4zu   ",

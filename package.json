@@ -16,8 +16,7 @@
 		"test:native": "cd packages/engine/tests && cmake -B build && cmake --build build && ./build/engine_tests",
 		"test:native:build": "cd packages/engine/tests && cmake -B build && cmake --build build",
 		"test:native:run": "cd packages/engine/tests && ./build/engine_tests",
-		"test:native:golden": "python scripts/generate-golden-files.py",
-		"test:native:audio": "bash scripts/convert-test-audio.sh"
+		"test:native:golden": "python scripts/generate-golden-files.py"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.2.0",

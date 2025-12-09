@@ -13,6 +13,7 @@ import expo.modules.kotlin.modules.ModuleDefinition
 import expo.modules.interfaces.permissions.Permissions
 import java.io.File
 import java.io.FileOutputStream
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 import kotlin.math.abs
 import kotlin.math.sqrt
@@ -39,12 +40,12 @@ class EngineModule : Module() {
     private external fun nativeGetFrameCount(): Long
 
     private var audioRecord: AudioRecord? = null
-    private var isRecordingAudio = false
+    private val isRecordingAudio = AtomicBoolean(false)
     private var recordingThread: Thread? = null
     private val waveformBufferSize = 512
     private val waveformRingBuffer = FloatArray(waveformBufferSize)
-    private var waveformWriteIndex = 0
-    private var waveformSamplesAccumulated = 0
+    @Volatile private var waveformWriteIndex = 0
+    @Volatile private var waveformSamplesAccumulated = 0
 
     override fun definition() = ModuleDefinition {
         Name("Engine")
@@ -152,11 +153,11 @@ class EngineModule : Module() {
         }
 
         Function("stopRecording") { stopAudioRecording() }
-        Function("isRecording") { isRecordingAudio }
+        Function("isRecording") { isRecordingAudio.get() }
     }
 
     private fun startAudioRecording(enableWaveform: Boolean) {
-        if (isRecordingAudio) {
+        if (isRecordingAudio.get()) {
             return
         }
 
@@ -185,16 +186,25 @@ class EngineModule : Module() {
         waveformWriteIndex = 0
         waveformSamplesAccumulated = 0
 
-        isRecordingAudio = true
+        isRecordingAudio.set(true)
         audioRecord?.startRecording()
 
         recordingThread = thread(start = true) {
             val buffer = FloatArray(441)
-            while (isRecordingAudio) {
-                val read = audioRecord?.read(buffer, 0, buffer.size, AudioRecord.READ_BLOCKING) ?: 0
+            while (isRecordingAudio.get()) {
+                val recorder = audioRecord ?: break
+                val read = try {
+                    recorder.read(buffer, 0, buffer.size, AudioRecord.READ_BLOCKING)
+                } catch (e: IllegalStateException) {
+                    // AudioRecord was stopped/released
+                    break
+                }
 
-                if (read > 0) {
+                if (read > 0 && isRecordingAudio.get()) {
                     processAudioSamples(buffer.copyOf(read), enableWaveform)
+                } else if (read < 0) {
+                    // Error or stopped
+                    break
                 }
             }
         }
@@ -203,12 +213,39 @@ class EngineModule : Module() {
     }
 
     private fun stopAudioRecording() {
-        isRecordingAudio = false
+        isRecordingAudio.set(false)
 
-        recordingThread?.join(1000)
+        // Stop AudioRecord first to unblock the blocking read() call
+        try {
+            audioRecord?.stop()
+        } catch (e: IllegalStateException) {
+            Log.w(TAG, "AudioRecord.stop() failed: ${e.message}")
+        }
+
+        // Wait for thread to terminate with retries
+        val thread = recordingThread
+        if (thread != null) {
+            var totalWait = 0L
+            val maxWait = 2000L
+            val joinInterval = 200L
+
+            while (thread.isAlive && totalWait < maxWait) {
+                try {
+                    thread.join(joinInterval)
+                    totalWait += joinInterval
+                } catch (e: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    break
+                }
+            }
+
+            if (thread.isAlive) {
+                Log.w(TAG, "Recording thread did not terminate in time")
+            }
+        }
         recordingThread = null
 
-        audioRecord?.stop()
+        // Release only after thread has terminated
         audioRecord?.release()
         audioRecord = null
 

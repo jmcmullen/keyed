@@ -78,7 +78,7 @@ export function Waveform({
 
 	// Waveform history
 	const history = useSharedValue<HistoryEntry[]>(
-		new Array(lineCount).fill({ bass: 0, mid: 0, high: 0 }),
+		Array.from({ length: lineCount }, () => ({ bass: 0, mid: 0, high: 0 })),
 	);
 	const peak = useSharedValue(MIN_PEAK);
 	const isActiveShared = useSharedValue(isActive);
@@ -91,7 +91,7 @@ export function Waveform({
 	// Reset on key change
 	// biome-ignore lint/correctness/useExhaustiveDependencies: resetKey triggers intentional reset
 	useEffect(() => {
-		history.value = new Array(lineCount).fill({ bass: 0, mid: 0, high: 0 });
+		history.value = Array.from({ length: lineCount }, () => ({ bass: 0, mid: 0, high: 0 }));
 		peak.value = MIN_PEAK;
 	}, [resetKey, lineCount]);
 
@@ -148,7 +148,7 @@ export function Waveform({
 		hist.push({ bass: bassH, mid: midH, high: highH });
 
 		if (hist.length !== currentLength) {
-			history.value = new Array(currentLength).fill({ bass: 0, mid: 0, high: 0 });
+			history.value = Array.from({ length: currentLength }, () => ({ bass: 0, mid: 0, high: 0 }));
 		} else {
 			history.value = hist;
 		}

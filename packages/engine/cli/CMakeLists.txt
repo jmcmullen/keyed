@@ -49,6 +49,22 @@ set(ENGINE_SOURCES
     ${ENGINE_DIR}/FFT.cpp
 )
 
+# Function to copy ONNX runtime dylib and create symlink for a target
+function(copy_onnx_runtime_dylib target_name)
+    add_custom_command(TARGET ${target_name} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy
+            "${ONNX_DIR}/lib/libonnxruntime.${ONNX_VERSION}.dylib"
+            "$<TARGET_FILE_DIR:${target_name}>/libonnxruntime.${ONNX_VERSION}.dylib"
+        COMMAND ${CMAKE_COMMAND} -E create_symlink
+            "libonnxruntime.${ONNX_VERSION}.dylib"
+            "$<TARGET_FILE_DIR:${target_name}>/libonnxruntime.dylib"
+    )
+    set_target_properties(${target_name} PROPERTIES
+        INSTALL_RPATH "@executable_path"
+        BUILD_WITH_INSTALL_RPATH TRUE
+    )
+endfunction()
+
 # CLI executable
 add_executable(beatnet_cli
     main.cpp
@@ -74,21 +90,7 @@ target_link_libraries(beatnet_cli PRIVATE
     "-framework CoreFoundation"
 )
 
-# Copy ONNX runtime dylib to build dir
-add_custom_command(TARGET beatnet_cli POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy
-        "${ONNX_DIR}/lib/libonnxruntime.${ONNX_VERSION}.dylib"
-        "$<TARGET_FILE_DIR:beatnet_cli>/libonnxruntime.${ONNX_VERSION}.dylib"
-    COMMAND ${CMAKE_COMMAND} -E create_symlink
-        "libonnxruntime.${ONNX_VERSION}.dylib"
-        "$<TARGET_FILE_DIR:beatnet_cli>/libonnxruntime.dylib"
-)
-
-# Set RPATH
-set_target_properties(beatnet_cli PROPERTIES
-    INSTALL_RPATH "@executable_path"
-    BUILD_WITH_INSTALL_RPATH TRUE
-)
+copy_onnx_runtime_dylib(beatnet_cli)
 
 # Batch test executable
 add_executable(batch_test
@@ -115,10 +117,7 @@ target_link_libraries(batch_test PRIVATE
     "-framework CoreFoundation"
 )
 
-set_target_properties(batch_test PROPERTIES
-    INSTALL_RPATH "@executable_path"
-    BUILD_WITH_INSTALL_RPATH TRUE
-)
+copy_onnx_runtime_dylib(batch_test)
 
 # Latency test executable
 add_executable(latency_test
@@ -145,7 +144,4 @@ target_link_libraries(latency_test PRIVATE
     "-framework CoreFoundation"
 )
 
-set_target_properties(latency_test PROPERTIES
-    INSTALL_RPATH "@executable_path"
-    BUILD_WITH_INSTALL_RPATH TRUE
-)
+copy_onnx_runtime_dylib(latency_test)

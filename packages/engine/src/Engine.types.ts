@@ -9,6 +9,19 @@ export interface FrameResult {
 	downbeatActivation: number;
 }
 
+export interface ProcessResult {
+	/** Detected beat type, or null if no beat */
+	beat: "beat" | "downbeat" | null;
+	/** Current BPM estimate */
+	bpm: number;
+	/** Current phase in the beat cycle (0-1) */
+	phase: number;
+	/** Detected meter (beats per bar) */
+	meter: number;
+	/** Confidence in the current estimate (0-1) */
+	confidence: number;
+}
+
 export interface EngineConstants {
 	/** Sample rate in Hz */
 	SAMPLE_RATE: number;

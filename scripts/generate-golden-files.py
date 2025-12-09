@@ -6,8 +6,10 @@ This script generates EXACT expected outputs that the C++ implementation
 must match. Any difference indicates a bug.
 
 Usage:
-    cd ~/dev/keyed
     python scripts/generate-golden-files.py
+
+Environment variables:
+    BEATNET_SRC: Path to BeatNet source (default: ~/dev/BeatNet/src)
 
 Requirements:
     pip install numpy librosa madmom
@@ -23,8 +25,11 @@ from pathlib import Path
 
 import numpy as np
 
-# Add BeatNet to path
-sys.path.insert(0, os.path.expanduser("~/dev/beatnet/src"))
+# Add BeatNet to path (configurable via BEATNET_SRC environment variable)
+BEATNET_SRC = os.path.abspath(
+    os.environ.get("BEATNET_SRC", os.path.expanduser("~/dev/BeatNet/src"))
+)
+sys.path.insert(0, BEATNET_SRC)
 
 # Paths
 SCRIPT_DIR = Path(__file__).parent
