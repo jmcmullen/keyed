@@ -1,0 +1,111 @@
+apply plugin: 'com.android.library'
+
+group = 'services.session.keyed.engine'
+version = '0.1.0'
+
+// ONNX Runtime - Download AAR and extract native libraries
+def onnxVersion = "1.21.0"
+def onnxAarDir = "$buildDir/onnxruntime"
+
+task downloadOnnxRuntime {
+    doLast {
+        def aarFile = file("$onnxAarDir/onnxruntime.aar")
+        if (!aarFile.exists()) {
+            mkdir onnxAarDir
+            def url = "https://repo1.maven.org/maven2/com/microsoft/onnxruntime/onnxruntime-android/$onnxVersion/onnxruntime-android-$onnxVersion.aar"
+            ant.get(src: url, dest: aarFile)
+        }
+    }
+}
+
+task extractOnnxRuntime(dependsOn: downloadOnnxRuntime) {
+    doLast {
+        def extractDir = file("$onnxAarDir/extracted")
+        if (!extractDir.exists()) {
+            copy {
+                from zipTree("$onnxAarDir/onnxruntime.aar")
+                into extractDir
+            }
+        }
+    }
+}
+
+// Copy ONNX model to assets
+task copyModelToAssets(type: Copy) {
+    from "$projectDir/../models"
+    into "$projectDir/src/main/assets"
+    include "*.onnx"
+}
+
+preBuild.dependsOn copyModelToAssets
+
+tasks.matching { it.name.startsWith('externalNativeBuild') }.configureEach {
+    dependsOn extractOnnxRuntime
+}
+
+def expoModulesCorePlugin = new File(project(":expo-modules-core").projectDir.absolutePath, "ExpoModulesCorePlugin.gradle")
+apply from: expoModulesCorePlugin
+applyKotlinExpoModulesCorePlugin()
+useCoreDependencies()
+useExpoPublishing()
+
+// If you want to use the managed Android SDK versions from expo-modules-core, set this to true.
+// The Android SDK versions will be bumped from time to time in SDK releases and may introduce breaking changes in your module code.
+// Most of the time, you may like to manage the Android SDK versions yourself.
+def useManagedAndroidSdkVersions = false
+if (useManagedAndroidSdkVersions) {
+  useDefaultAndroidSdkVersions()
+} else {
+  buildscript {
+    // Simple helper that allows the root project to override versions declared by this library.
+    ext.safeExtGet = { prop, fallback ->
+      rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
+    }
+  }
+  project.android {
+    compileSdkVersion safeExtGet("compileSdkVersion", 36)
+    defaultConfig {
+      minSdkVersion safeExtGet("minSdkVersion", 24)
+      targetSdkVersion safeExtGet("targetSdkVersion", 36)
+    }
+  }
+}
+
+android {
+  namespace "services.session.keyed.engine"
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+
+    // Enable CMake for C++ native code
+    externalNativeBuild {
+      cmake {
+        cppFlags "-std=c++17 -O3 -ffast-math"
+        arguments "-DANDROID_STL=c++_shared",
+                  "-DONNX_DIR=${buildDir}/onnxruntime/extracted"
+      }
+    }
+
+    ndk {
+      abiFilters "armeabi-v7a", "arm64-v8a", "x86", "x86_64"
+    }
+  }
+
+  externalNativeBuild {
+    cmake {
+      path "src/main/cpp/CMakeLists.txt"
+      version "3.22.1"
+    }
+  }
+
+  lintOptions {
+    abortOnError false
+  }
+
+  // Package ONNX Runtime native libraries
+  sourceSets {
+    main {
+      jniLibs.srcDirs = ["$buildDir/onnxruntime/extracted/jni"]
+    }
+  }
+}

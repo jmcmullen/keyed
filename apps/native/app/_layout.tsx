@@ -11,8 +11,8 @@ export default function RootLayout() {
 	const { theme } = useUnistyles();
 
 	return (
-		<DbProvider>
-			<GestureHandlerRootView style={{ flex: 1 }}>
+		<GestureHandlerRootView style={{ flex: 1 }}>
+			<DbProvider>
 				<Stack
 					screenOptions={{
 						headerStyle: {
@@ -30,7 +30,7 @@ export default function RootLayout() {
 						options={{ title: "Modal", presentation: "modal" }}
 					/>
 				</Stack>
-			</GestureHandlerRootView>
-		</DbProvider>
+			</DbProvider>
+		</GestureHandlerRootView>
 	);
 }

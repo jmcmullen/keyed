@@ -6,7 +6,6 @@
 		"orientation": "portrait",
 		"icon": "./assets/images/icon.png",
 		"scheme": "keyed",
-		"userInterfaceStyle": "dark",
 		"newArchEnabled": true,
 		"ios": {
 			"icon": "./assets/images/keyed.icon",
@@ -32,12 +31,6 @@
 		"plugins": [
 			"expo-router",
 			"expo-sqlite",
-			[
-				"@siteed/expo-audio-studio",
-				{
-					"microphonePermission": "Keyed uses the microphone to detect the key and tempo of music playing around you."
-				}
-			],
 			[
 				"expo-splash-screen",
 				{
