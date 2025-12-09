@@ -1,217 +1,284 @@
-import { Canvas, Path, Skia } from "@shopify/react-native-skia";
-import { useEffect, useMemo, useRef } from "react";
 import {
-	runOnJS,
+	Blur,
+	Canvas,
+	Group,
+	LinearGradient,
+	Paint,
+	Path,
+	Skia,
+	vec,
+} from "@shopify/react-native-skia";
+import { useEffect, useMemo } from "react";
+import { View } from "react-native";
+import {
 	type SharedValue,
-	useAnimatedReaction,
 	useDerivedValue,
 	useSharedValue,
 } from "react-native-reanimated";
-import { StyleSheet, useUnistyles } from "react-native-unistyles";
+import { StyleSheet } from "react-native-unistyles";
 
 interface WaveformProps {
 	samples: SharedValue<number[]>;
 	width: number;
 	height: number;
-	beatActivation?: SharedValue<number>;
-	downbeatActivation?: SharedValue<number>;
 	isActive?: boolean;
+	resetKey?: number;
+	gridMarkers?: number[];
+	cuePoints?: number[];
 }
 
-const SAMPLE_COUNT = 128;
-const BEAT_THRESHOLD = 0.45;
-const DOWNBEAT_THRESHOLD = 0.65;
+// Visual constants
+const LINE_WIDTH = 1;
+const LINE_GAP = 1;
+const LINE_SPACING = LINE_WIDTH + LINE_GAP;
+const PEAK_DECAY = 0.85;
+const MIN_PEAK = 0.01;
+
+// Colors
+const BASS_COLOR = "#0040d0";
+const MID_COLOR = "#00ccff";
+const HIGH_COLOR = "#ffffff";
+
+interface HistoryEntry {
+	bass: number;
+	mid: number;
+	high: number;
+}
+
+function createPathForLayer(
+	history: HistoryEntry[],
+	layerKey: keyof HistoryEntry,
+	centerY: number,
+): ReturnType<typeof Skia.Path.Make> {
+	"worklet";
+	const path = Skia.Path.Make();
+	const len = history.length;
+
+	for (let i = 0; i < len; i++) {
+		const val = history[i][layerKey as "bass" | "mid" | "high"];
+		if (val < 0.5) continue;
+
+		const x = i * LINE_SPACING;
+		path.moveTo(x, centerY - val);
+		path.lineTo(x, centerY + val);
+	}
+	return path;
+}
 
 export function Waveform({
 	samples,
 	width,
 	height,
-	beatActivation,
-	downbeatActivation,
 	isActive = false,
+	resetKey = 0,
+	gridMarkers = [],
+	cuePoints = [],
 }: WaveformProps) {
-	const { theme } = useUnistyles();
+	const lineCount = useMemo(() => Math.floor(width / LINE_SPACING), [width]);
 
-	// Cache colors for use in worklet and debug
-	const primaryColor = theme.colors.primary;
-	const successColor = theme.colors.success;
-
-	// Debug: throttled logging
-	const lastLogRef = useRef(0);
-	const lastColorRef = useRef("");
-
-	// Convert isActive prop to shared value for use in derived values
+	// Waveform history
+	const history = useSharedValue<HistoryEntry[]>(
+		new Array(lineCount).fill({ bass: 0, mid: 0, high: 0 }),
+	);
+	const peak = useSharedValue(MIN_PEAK);
 	const isActiveShared = useSharedValue(isActive);
+
+	// Sync isActive
 	useEffect(() => {
 		isActiveShared.value = isActive;
 	}, [isActive, isActiveShared]);
 
-	// Shared values for UI thread updates
-	const points = useSharedValue<number[]>(new Array(SAMPLE_COUNT).fill(0));
-	const peak = useSharedValue(0.01);
+	// Reset on key change
+	// biome-ignore lint/correctness/useExhaustiveDependencies: resetKey triggers intentional reset
+	useEffect(() => {
+		history.value = new Array(lineCount).fill({ bass: 0, mid: 0, high: 0 });
+		peak.value = MIN_PEAK;
+	}, [resetKey, lineCount]);
 
 	const centerY = height / 2;
-	const maxAmplitude = height * 0.4;
-	const stepX = width / (SAMPLE_COUNT - 1);
+	const maxBarHeight = height * 0.45;
 
-	// Generate flat line path for idle state
-	const flatLinePath = useMemo(() => {
-		const path = Skia.Path.Make();
-		path.moveTo(0, centerY);
-		path.lineTo(width, centerY);
-		return path;
-	}, [width, centerY]);
+	// Main processing
+	useDerivedValue(() => {
+		"worklet";
+		if (!isActiveShared.value) return;
 
-	// Process samples and update normalized points
-	const updatePoints = (data: number[]) => {
-		if (data.length === 0) {
-			points.value = new Array(SAMPLE_COUNT).fill(0);
-			return;
-		}
+		const data = samples.value;
+		const sampleLen = data.length;
+		if (sampleLen === 0) return;
 
-		// Find overall peak for auto-gain
-		let overallPeak = 0;
-		for (let i = 0; i < data.length; i++) {
+		// Find peak for auto-gain
+		let framePeak = 0;
+		for (let i = 0; i < sampleLen; i++) {
 			const absVal = Math.abs(data[i]);
-			if (absVal > overallPeak) overallPeak = absVal;
+			if (absVal > framePeak) framePeak = absVal;
 		}
 
-		// Smooth peak tracking (slow decay, fast attack)
-		const currentPeak = peak.value;
+		// Update peak tracker
 		peak.value =
-			overallPeak > currentPeak
-				? overallPeak
-				: currentPeak * 0.95 + overallPeak * 0.05;
+			framePeak > peak.value
+				? framePeak
+				: peak.value * PEAK_DECAY + framePeak * (1 - PEAK_DECAY);
 
-		// Normalize gain
-		const gain = 1 / Math.max(peak.value, 0.01);
-		const samplesPerPoint = Math.floor(data.length / SAMPLE_COUNT);
+		const gain = 1 / Math.max(peak.value, MIN_PEAK);
 
-		const newPoints = new Array(SAMPLE_COUNT);
-		for (let i = 0; i < SAMPLE_COUNT; i++) {
-			const start = i * samplesPerPoint;
-			const end = Math.min(start + samplesPerPoint, data.length);
-
-			// Average the samples for this point
-			let sum = 0;
-			for (let j = start; j < end; j++) {
-				sum += data[j];
-			}
-			const avg = sum / (end - start);
-			newPoints[i] = Math.max(-1, Math.min(1, avg * gain));
+		// Calculate band energies for visualization
+		let sumAbs = 0;
+		let sumDiff = 0;
+		for (let i = 0; i < sampleLen; i++) {
+			sumAbs += Math.abs(data[i]);
+			if (i > 0) sumDiff += Math.abs(data[i] - data[i - 1]);
 		}
 
-		points.value = newPoints;
-	};
+		const avgAbs = (sumAbs / sampleLen) * gain;
+		const avgDiff = (sumDiff / (sampleLen - 1)) * gain;
 
-	// React to sample changes
-	useAnimatedReaction(
-		() => samples.value,
-		(data) => {
-			runOnJS(updatePoints)(data);
-		},
-		[],
+		const rawHigh = Math.min(1, Math.max(0, avgDiff * 5.0));
+		const rawBass = Math.min(1, Math.max(0, (avgAbs - avgDiff * 0.5) * 1.5));
+		const rawMid = Math.min(1, Math.max(0, avgAbs * 1.2));
+
+		const highH = rawHigh * maxBarHeight * 0.5;
+		const midH = rawMid * maxBarHeight * 0.75;
+		const bassH = rawBass * maxBarHeight * 1.0;
+
+		// Update waveform history
+		const currentLength = history.value.length;
+		const hist = history.value.slice();
+		hist.shift();
+		hist.push({ bass: bassH, mid: midH, high: highH });
+
+		if (hist.length !== currentLength) {
+			history.value = new Array(currentLength).fill({ bass: 0, mid: 0, high: 0 });
+		} else {
+			history.value = hist;
+		}
+	}, [maxBarHeight, lineCount]);
+
+	// Create paths
+	const bassPath = useDerivedValue(
+		() => createPathForLayer(history.value, "bass", centerY),
+		[centerY],
+	);
+	const midPath = useDerivedValue(
+		() => createPathForLayer(history.value, "mid", centerY),
+		[centerY],
+	);
+	const highPath = useDerivedValue(
+		() => createPathForLayer(history.value, "high", centerY),
+		[centerY],
 	);
 
-	// Debug: log on color change or every 500ms
-	const logDebug = (beat: number, downbeat: number, samplesLen: number) => {
-		const now = Date.now();
-		const color =
-			downbeat > DOWNBEAT_THRESHOLD
-				? "green"
-				: beat > BEAT_THRESHOLD
-					? "white"
-					: "primary";
-		const colorChanged = color !== lastColorRef.current;
-		const shouldLog = colorChanged || now - lastLogRef.current > 500;
+	const gradientStart = vec(0, 0);
+	const gradientEnd = vec(0, height);
 
-		if (shouldLog && isActive) {
-			console.log(
-				`[waveform] beat=${beat.toFixed(2)} downbeat=${downbeat.toFixed(2)} color=${color} samples=${samplesLen} primaryColor=${primaryColor}`,
-			);
-			lastLogRef.current = now;
-			lastColorRef.current = color;
-		}
-	};
+	const staticGridPath = useMemo(() => {
+		const p = Skia.Path.Make();
+		gridMarkers.forEach((x) => {
+			p.moveTo(x, 0);
+			p.lineTo(x, height);
+		});
+		return p;
+	}, [gridMarkers, height]);
 
-	useAnimatedReaction(
-		() => ({
-			beat: beatActivation?.value ?? -1,
-			downbeat: downbeatActivation?.value ?? -1,
-			samples: samples.value.length,
-		}),
-		({ beat, downbeat, samples: samplesLen }) => {
-			runOnJS(logDebug)(beat, downbeat, samplesLen);
-		},
-		[isActive],
-	);
-
-	// Build smooth bezier curve from points - runs on UI thread
-	const waveformPath = useDerivedValue(() => {
-		// Always read the shared value to ensure reactivity
-		const active = isActiveShared.value;
-		const pts = points.value;
-
-		if (!active) {
-			return flatLinePath;
-		}
-
-		const path = Skia.Path.Make();
-
-		// Start at first point
-		const startY = centerY - pts[0] * maxAmplitude;
-		path.moveTo(0, startY);
-
-		// Draw smooth bezier curve through all points
-		for (let i = 1; i < SAMPLE_COUNT; i++) {
-			const x = i * stepX;
-			const y = centerY - pts[i] * maxAmplitude;
-
-			const prevX = (i - 1) * stepX;
-			const prevY = centerY - pts[i - 1] * maxAmplitude;
-
-			// Control points for smooth curve
-			const cpX = (prevX + x) / 2;
-
-			path.cubicTo(cpX, prevY, cpX, y, x, y);
-		}
-
-		return path;
-	}, [flatLinePath, centerY, maxAmplitude, stepX]);
-
-	// Derive color based on beat/downbeat activation - runs on UI thread
-	const waveformColor = useDerivedValue(() => {
-		const beat = beatActivation?.value ?? 0;
-		const downbeat = downbeatActivation?.value ?? 0;
-
-		// Downbeat takes priority (green) - higher threshold to avoid noise
-		if (downbeat > DOWNBEAT_THRESHOLD) {
-			return successColor;
-		}
-		// Beat detection (white flash)
-		if (beat > BEAT_THRESHOLD) {
-			return "#FFFFFF";
-		}
-		// Default primary color
-		return primaryColor;
-	}, [primaryColor, successColor]);
+	const cuePath = useMemo(() => {
+		const p = Skia.Path.Make();
+		const size = 6;
+		cuePoints.forEach((x) => {
+			p.moveTo(x - size, height);
+			p.lineTo(x + size, height);
+			p.lineTo(x, height - size * 1.5);
+			p.close();
+		});
+		return p;
+	}, [cuePoints, height]);
 
 	return (
-		<Canvas style={[styles.canvas, { width, height }]}>
-			<Path
-				path={waveformPath}
-				color={waveformColor}
-				style="stroke"
-				strokeWidth={2}
-				strokeCap="round"
-				strokeJoin="round"
-			/>
-		</Canvas>
+		<View style={[styles.container, { width, height }]}>
+			<Canvas style={{ width, height }}>
+				<Paint color="black" />
+
+				{/* Legacy Grid */}
+				<Group>
+					<Path
+						path={staticGridPath}
+						style="stroke"
+						strokeWidth={1}
+						color="rgba(255, 255, 255, 0.3)"
+					/>
+				</Group>
+
+				{/* Bass Layer */}
+				<Path
+					path={bassPath}
+					style="stroke"
+					strokeWidth={LINE_WIDTH}
+					strokeCap="round"
+				>
+					<LinearGradient
+						start={gradientStart}
+						end={gradientEnd}
+						colors={["transparent", BASS_COLOR, BASS_COLOR, "transparent"]}
+						positions={[0, 0.45, 0.55, 1]}
+					/>
+				</Path>
+
+				{/* Mid Layer */}
+				<Path
+					path={midPath}
+					style="stroke"
+					strokeWidth={LINE_WIDTH}
+					strokeCap="round"
+				>
+					<LinearGradient
+						start={gradientStart}
+						end={gradientEnd}
+						colors={["transparent", MID_COLOR, MID_COLOR, "transparent"]}
+						positions={[0, 0.45, 0.55, 1]}
+					/>
+				</Path>
+
+				{/* High Layer */}
+				<Path
+					path={highPath}
+					style="stroke"
+					strokeWidth={LINE_WIDTH}
+					strokeCap="round"
+				>
+					<LinearGradient
+						start={gradientStart}
+						end={gradientEnd}
+						colors={["transparent", HIGH_COLOR, HIGH_COLOR, "transparent"]}
+						positions={[0.3, 0.48, 0.52, 0.7]}
+					/>
+				</Path>
+
+				{/* Glow Layer */}
+				<Group
+					layer={
+						<Paint>
+							<Blur blur={4} />
+						</Paint>
+					}
+					opacity={0.6}
+				>
+					<Path
+						path={highPath}
+						color={HIGH_COLOR}
+						style="stroke"
+						strokeWidth={LINE_WIDTH * 3}
+					/>
+				</Group>
+
+				{/* Cue Markers */}
+				<Path path={cuePath} color="red" style="fill" />
+			</Canvas>
+		</View>
 	);
 }
 
 const styles = StyleSheet.create(() => ({
-	canvas: {
-		backgroundColor: "transparent",
+	container: {
+		backgroundColor: "black",
+		position: "relative",
 	},
 }));

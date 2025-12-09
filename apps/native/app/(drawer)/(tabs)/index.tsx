@@ -1,4 +1,11 @@
+import { useEffect, useState } from "react";
 import { Pressable, Text, useWindowDimensions, View } from "react-native";
+import Animated, {
+	useAnimatedStyle,
+	useSharedValue,
+	withRepeat,
+	withTiming,
+} from "react-native-reanimated";
 import { StyleSheet } from "react-native-unistyles";
 import { Waveform } from "@/components/waveform";
 import { useEngine } from "@/hooks/use-engine";
@@ -8,8 +15,6 @@ export default function BeatNetTab() {
 		status,
 		isListening,
 		result,
-		beatActivation,
-		downbeatActivation,
 		waveformSamples,
 		error,
 		startListening,
@@ -17,80 +22,114 @@ export default function BeatNetTab() {
 		reset,
 	} = useEngine();
 	const { width: windowWidth } = useWindowDimensions();
+	const [waveformResetKey, setWaveformResetKey] = useState(0);
+
+	// Pulsing animation for status dot
+	const pulseOpacity = useSharedValue(1);
+
+	useEffect(() => {
+		if (isListening) {
+			pulseOpacity.value = withRepeat(
+				withTiming(0.3, { duration: 600 }),
+				-1,
+				true,
+			);
+		} else {
+			pulseOpacity.value = withTiming(1, { duration: 200 });
+		}
+	}, [isListening, pulseOpacity]);
+
+	const dotAnimatedStyle = useAnimatedStyle(() => ({
+		opacity: pulseOpacity.value,
+	}));
 
 	const handlePress = async () => {
 		if (isListening) {
-			await stopListening();
+			stopListening();
 		} else {
 			if (status === "detected" || status === "error") {
 				reset();
 			}
+			setWaveformResetKey((k) => k + 1);
 			await startListening();
 		}
 	};
 
 	const getButtonText = () => {
-		if (status === "initializing") return "Loading...";
-		if (isListening) return "Stop";
-		return "Start";
+		if (status === "initializing") return "LOADING";
+		if (isListening) return "STOP";
+		return "START";
 	};
 
 	const getStatusText = () => {
 		if (isListening) {
-			if (!result?.bpm) return "Listening...";
-			return `${result.meter}/4`;
+			if (!result?.bpm) return "LISTENING";
+			return "ANALYZING";
 		}
-		if (status === "initializing") return "Loading...";
-		if (status === "error") return "Error";
-		if (result?.bpm) return "Tap to detect";
-		return "Tap to start";
+		if (status === "initializing") return "LOADING";
+		if (status === "error") return "ERROR";
+		return "READY";
 	};
+
+	const getStatusColor = () => {
+		if (status === "error") return "#EF4444";
+		if (isListening) return "#00D4FF";
+		return "#22C55E";
+	};
+
+	const bpmDisplay = result?.bpm ? result.bpm.toFixed(1) : "---.-";
 
 	return (
 		<View style={styles.container}>
-			{/* Waveform */}
-			<Waveform
-				samples={waveformSamples}
-				width={windowWidth}
-				height={120}
-				beatActivation={beatActivation}
-				downbeatActivation={downbeatActivation}
-				isActive={isListening}
-			/>
+			{/* Status Row */}
+			<View style={styles.statusRow}>
+				<View style={styles.statusIndicator}>
+					<Animated.View
+						style={[
+							styles.statusDot,
+							{ backgroundColor: getStatusColor() },
+							dotAnimatedStyle,
+						]}
+					/>
+					<Text style={styles.statusText}>{getStatusText()}</Text>
+				</View>
+			</View>
 
 			{/* BPM Display */}
 			<View style={styles.bpmSection}>
-				<Text style={styles.bpmValue}>
-					{result?.bpm ? result.bpm.toFixed(0) : "---"}
-				</Text>
 				<Text style={styles.bpmLabel}>BPM</Text>
-				{result?.confidence !== undefined && result.confidence > 0 && (
-					<Text style={styles.confidenceText}>
-						{Math.round(result.confidence * 100)}% confident
-					</Text>
-				)}
+				<Text style={styles.bpmValue}>{bpmDisplay}</Text>
 			</View>
 
-			{/* Status */}
-			<Text style={styles.statusText}>{getStatusText()}</Text>
+			{/* Waveform */}
+			<View style={styles.waveformContainer}>
+				<Waveform
+					samples={waveformSamples}
+					width={windowWidth - 32}
+					height={200}
+					isActive={isListening}
+					resetKey={waveformResetKey}
+				/>
+			</View>
 
-			{/* Error */}
+
+
 			{error && <Text style={styles.errorText}>{error}</Text>}
 
-			{/* Action Button */}
+			{/* Button */}
 			<View style={styles.buttonContainer}>
 				<Pressable
 					style={({ pressed }) => [
 						styles.button,
 						pressed && styles.buttonPressed,
 						status === "initializing" && styles.buttonDisabled,
-						isListening && styles.buttonStop,
+						isListening && styles.buttonActive,
 					]}
 					onPress={handlePress}
 					disabled={status === "initializing"}
 				>
 					<Text
-						style={[styles.buttonText, isListening && styles.buttonTextStop]}
+						style={[styles.buttonText, isListening && styles.buttonTextActive]}
 					>
 						{getButtonText()}
 					</Text>
@@ -104,69 +143,85 @@ const styles = StyleSheet.create((theme) => ({
 	container: {
 		flex: 1,
 		backgroundColor: "#000000",
+		paddingHorizontal: theme.spacing.md,
+	},
+	statusRow: {
+		paddingTop: theme.spacing.md,
+		paddingBottom: theme.spacing.sm,
+	},
+	statusIndicator: {
+		flexDirection: "row",
 		alignItems: "center",
-		justifyContent: "center",
-		gap: theme.spacing.xl,
-		paddingBottom: theme.spacing.xl,
+		gap: 8,
+	},
+	statusDot: {
+		width: 8,
+		height: 8,
+		borderRadius: 4,
+	},
+	statusText: {
+		fontSize: 11,
+		fontWeight: "600",
+		color: "#6B7280",
+		letterSpacing: 1.5,
 	},
 	bpmSection: {
 		alignItems: "center",
-	},
-	bpmValue: {
-		fontSize: 96,
-		fontWeight: "200",
-		color: "#FFFFFF",
-		fontVariant: ["tabular-nums"],
+		paddingVertical: theme.spacing.lg,
 	},
 	bpmLabel: {
-		fontSize: theme.fontSize.sm,
-		color: "rgba(255, 255, 255, 0.5)",
-		textTransform: "uppercase",
-		letterSpacing: 4,
+		fontSize: 11,
+		fontWeight: "600",
+		color: "#4B5563",
+		letterSpacing: 2,
+		marginBottom: 4,
 	},
-	confidenceText: {
-		fontSize: theme.fontSize.sm,
-		color: "rgba(255, 255, 255, 0.3)",
-		marginTop: theme.spacing.sm,
+	bpmValue: {
+		fontSize: 72,
+		fontWeight: "300",
+		color: "#FFFFFF",
+		fontVariant: ["tabular-nums"],
+		letterSpacing: -2,
 	},
-	statusText: {
-		fontSize: theme.fontSize.base,
-		color: "rgba(255, 255, 255, 0.5)",
+	waveformContainer: {
+		alignItems: "center",
+		paddingVertical: theme.spacing.md,
 	},
+
 	errorText: {
 		fontSize: theme.fontSize.sm,
 		color: theme.colors.destructive,
+		textAlign: "center",
+		marginBottom: theme.spacing.md,
 	},
 	buttonContainer: {
 		position: "absolute",
 		bottom: theme.spacing.xl,
-		left: theme.spacing.lg,
-		right: theme.spacing.lg,
+		left: theme.spacing.md,
+		right: theme.spacing.md,
 	},
 	button: {
-		backgroundColor: "rgba(255, 255, 255, 0.1)",
-		paddingVertical: theme.spacing.md,
-		borderRadius: theme.borderRadius.lg,
+		backgroundColor: "#111111",
+		paddingVertical: 16,
+		borderRadius: 8,
 		alignItems: "center",
-		borderWidth: 1,
-		borderColor: "rgba(255, 255, 255, 0.2)",
 	},
 	buttonPressed: {
-		backgroundColor: "rgba(255, 255, 255, 0.15)",
+		backgroundColor: "#1a1a1a",
 	},
 	buttonDisabled: {
-		opacity: 0.5,
+		opacity: 0.4,
 	},
-	buttonStop: {
-		backgroundColor: "rgba(239, 68, 68, 0.2)",
-		borderColor: "rgba(239, 68, 68, 0.4)",
+	buttonActive: {
+		backgroundColor: "rgba(239, 68, 68, 0.1)",
 	},
 	buttonText: {
-		fontSize: theme.fontSize.base,
-		fontWeight: "500",
-		color: "#FFFFFF",
+		fontSize: 13,
+		fontWeight: "600",
+		color: "#00D4FF",
+		letterSpacing: 2,
 	},
-	buttonTextStop: {
+	buttonTextActive: {
 		color: "#EF4444",
 	},
 }));

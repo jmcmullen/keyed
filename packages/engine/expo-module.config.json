@@ -1,0 +1,10 @@
+{
+	"platforms": ["apple", "android", "web"],
+	"apple": {
+		"modules": ["EngineModule"],
+		"podspecPath": "./Engine.podspec"
+	},
+	"android": {
+		"modules": ["services.session.keyed.engine.EngineModule"]
+	}
+}
