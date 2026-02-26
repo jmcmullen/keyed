@@ -16,6 +16,8 @@ export default function BeatNetTab() {
 		isListening,
 		result,
 		waveformSamples,
+		beatActivation,
+		downbeatActivation,
 		error,
 		startListening,
 		stopListening,
@@ -42,6 +44,22 @@ export default function BeatNetTab() {
 	const dotAnimatedStyle = useAnimatedStyle(() => ({
 		opacity: pulseOpacity.value,
 	}));
+
+	const buttonGlowAnimatedStyle = useAnimatedStyle(
+		() => {
+			const beatBoost = beatActivation.value * 0.8 + downbeatActivation.value * 1.2;
+			const pulseScale = isListening ? 1 + beatBoost * 0.06 : 1;
+			const glowOpacity = isListening ? 0.2 + beatBoost * 0.45 : 0.12;
+			const glowRadius = isListening ? 10 + beatBoost * 20 : 8;
+
+			return {
+				transform: [{ scale: pulseScale }],
+				shadowOpacity: glowOpacity,
+				shadowRadius: glowRadius,
+			};
+		},
+		[isListening],
+	);
 
 	const handlePress = async () => {
 		if (isListening) {
@@ -118,22 +136,32 @@ export default function BeatNetTab() {
 
 			{/* Button */}
 			<View style={styles.buttonContainer}>
-				<Pressable
-					style={({ pressed }) => [
-						styles.button,
-						pressed && styles.buttonPressed,
-						status === "initializing" && styles.buttonDisabled,
-						isListening && styles.buttonActive,
+				<Animated.View
+					style={[
+						styles.buttonGlow,
+						isListening ? styles.buttonGlowActive : styles.buttonGlowIdle,
+						buttonGlowAnimatedStyle,
 					]}
-					onPress={handlePress}
-					disabled={status === "initializing"}
 				>
-					<Text
-						style={[styles.buttonText, isListening && styles.buttonTextActive]}
+					<Pressable
+						style={({ pressed }) => [
+							styles.button,
+							isListening ? styles.buttonActive : styles.buttonIdle,
+							pressed && styles.buttonPressed,
+							status === "initializing" && styles.buttonDisabled,
+						]}
+						onPress={handlePress}
+						disabled={status === "initializing"}
 					>
-						{getButtonText()}
-					</Text>
-				</Pressable>
+						<View style={styles.buttonInnerRing}>
+							<Text
+								style={[styles.buttonText, isListening && styles.buttonTextActive]}
+							>
+								{getButtonText()}
+							</Text>
+						</View>
+					</Pressable>
+				</Animated.View>
 			</View>
 		</View>
 	);
@@ -195,33 +223,61 @@ const styles = StyleSheet.create((theme) => ({
 		marginBottom: theme.spacing.md,
 	},
 	buttonContainer: {
-		position: "absolute",
-		bottom: theme.spacing.xl,
-		left: theme.spacing.md,
-		right: theme.spacing.md,
+		marginTop: theme.spacing.lg,
+		alignItems: "center",
+		justifyContent: "center",
+		paddingBottom: theme.spacing.xl,
+	},
+	buttonGlow: {
+		borderRadius: 9999,
+		shadowColor: "#00D4FF",
+		shadowOffset: { width: 0, height: 0 },
+	},
+	buttonGlowIdle: {
+		shadowColor: "#00D4FF",
+	},
+	buttonGlowActive: {
+		shadowColor: "#3B82F6",
 	},
 	button: {
-		backgroundColor: "#111111",
-		paddingVertical: 16,
-		borderRadius: 8,
+		width: 136,
+		height: 136,
+		borderRadius: 9999,
+		borderWidth: 3,
 		alignItems: "center",
+		justifyContent: "center",
+	},
+	buttonIdle: {
+		backgroundColor: "#0A0A0A",
+		borderColor: "#00D4FF",
+	},
+	buttonActive: {
+		backgroundColor: "#090D14",
+		borderColor: "#3B82F6",
 	},
 	buttonPressed: {
-		backgroundColor: "#1a1a1a",
+		opacity: 0.85,
 	},
 	buttonDisabled: {
 		opacity: 0.4,
 	},
-	buttonActive: {
-		backgroundColor: "rgba(239, 68, 68, 0.1)",
+	buttonInnerRing: {
+		width: 110,
+		height: 110,
+		borderRadius: 9999,
+		borderWidth: 2,
+		borderColor: "rgba(255, 255, 255, 0.2)",
+		alignItems: "center",
+		justifyContent: "center",
+		backgroundColor: "rgba(0, 0, 0, 0.55)",
 	},
 	buttonText: {
-		fontSize: 13,
-		fontWeight: "600",
+		fontSize: 18,
+		fontWeight: "700",
 		color: "#00D4FF",
-		letterSpacing: 2,
+		letterSpacing: 2.4,
 	},
 	buttonTextActive: {
-		color: "#EF4444",
+		color: "#3B82F6",
 	},
 }));
