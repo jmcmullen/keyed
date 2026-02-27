@@ -2,11 +2,11 @@ import { NativeModule, registerWebModule } from "expo";
 import type { EngineModuleEvents, ProcessResult } from "./Engine.types";
 
 class EngineModuleWeb extends NativeModule<EngineModuleEvents> {
-	FFT_SIZE = 1411;
-	SAMPLE_RATE = 22050;
-	HOP_LENGTH = 441;
-	N_MELS = 136;
-	FPS = 50;
+	SAMPLE_RATE = 44100;
+	BPM_SAMPLE_RATE = 22050;
+	KEY_SAMPLE_RATE = 44100;
+	BPM_FPS = 50;
+	KEY_FPS = 5;
 
 	hello(): string {
 		return "Engine web module (stub)";

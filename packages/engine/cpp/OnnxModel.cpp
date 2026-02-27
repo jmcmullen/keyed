@@ -93,8 +93,7 @@ bool OnnxModel::load(const std::string& modelPath) {
         return false;
     }
 
-    // Set optimization level
-    api_->SetSessionGraphOptimizationLevel(sessionOptions_, ORT_ENABLE_ALL);
+    (void)api_->SetSessionGraphOptimizationLevel(sessionOptions_, ORT_ENABLE_ALL);
 
     // Enable hardware acceleration based on platform
 #ifdef __ANDROID__
@@ -252,11 +251,10 @@ bool OnnxModel::infer(const float* features, ModelOutput& output) {
         return false;
     }
 
-    // Update LSTM hidden state for next frame
     float* hiddenOut = nullptr;
     float* cellOut = nullptr;
-    api_->GetTensorMutableData(outputs[1], (void**)&hiddenOut);
-    api_->GetTensorMutableData(outputs[2], (void**)&cellOut);
+    (void)api_->GetTensorMutableData(outputs[1], (void**)&hiddenOut);
+    (void)api_->GetTensorMutableData(outputs[2], (void**)&cellOut);
 
     if (hiddenOut) {
         std::memcpy(hidden_.data(), hiddenOut, hidden_.size() * sizeof(float));

@@ -32,15 +32,40 @@ if(NOT DEFINED ONNX_ENABLED OR ONNX_ENABLED)
     set(ONNX_URL "https://github.com/microsoft/onnxruntime/releases/download/v${ONNX_VERSION}/onnxruntime-${ONNX_PLATFORM}-${ONNX_VERSION}.tgz")
     set(ONNX_ARCHIVE ${CMAKE_CURRENT_BINARY_DIR}/onnxruntime.tgz)
     set(ONNX_EXTRACT_DIR ${CMAKE_CURRENT_BINARY_DIR}/onnxruntime-${ONNX_PLATFORM}-${ONNX_VERSION})
+    if(ONNX_PLATFORM STREQUAL "osx-arm64")
+        set(ONNX_SHA256 "5c3f2064ee97eb7774e87f396735c8eada7287734f1bb7847467ad30d4036115")
+    elseif(ONNX_PLATFORM STREQUAL "osx-x86_64")
+        set(ONNX_SHA256 "8305afd2d75ee5702844a23b099d41885af30ad3d1b4cf3d8d795e3d8c1f9396")
+    elseif(ONNX_PLATFORM STREQUAL "linux-x64")
+        set(ONNX_SHA256 "7485c7e7aac6501b27e353dcbe068e45c61ab51fbaf598d13970dfae669d20bf")
+    else()
+        message(FATAL_ERROR "No checksum configured for ONNX platform '${ONNX_PLATFORM}'")
+    endif()
 
     if(NOT EXISTS ${ONNX_EXTRACT_DIR})
         message(STATUS "Downloading ONNX Runtime ${ONNX_VERSION} for ${ONNX_PLATFORM}...")
-        file(DOWNLOAD ${ONNX_URL} ${ONNX_ARCHIVE} SHOW_PROGRESS)
+        file(DOWNLOAD
+            ${ONNX_URL}
+            ${ONNX_ARCHIVE}
+            SHOW_PROGRESS
+            EXPECTED_HASH SHA256=${ONNX_SHA256}
+            STATUS ONNX_DOWNLOAD_STATUS
+            TLS_VERIFY ON
+        )
+        list(GET ONNX_DOWNLOAD_STATUS 0 ONNX_DOWNLOAD_STATUS_CODE)
+        list(GET ONNX_DOWNLOAD_STATUS 1 ONNX_DOWNLOAD_STATUS_MESSAGE)
+        if(NOT ONNX_DOWNLOAD_STATUS_CODE EQUAL 0)
+            message(FATAL_ERROR "Failed to download ONNX Runtime: ${ONNX_DOWNLOAD_STATUS_MESSAGE}")
+        endif()
         message(STATUS "Extracting ONNX Runtime...")
         execute_process(
             COMMAND ${CMAKE_COMMAND} -E tar xzf ${ONNX_ARCHIVE}
             WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+            RESULT_VARIABLE ONNX_EXTRACT_RESULT
         )
+        if(NOT ONNX_EXTRACT_RESULT EQUAL 0)
+            message(FATAL_ERROR "Failed to extract ONNX Runtime archive")
+        endif()
     endif()
 
     set(ONNX_INCLUDE_DIR ${ONNX_EXTRACT_DIR}/include)
@@ -68,16 +93,19 @@ endif()
 add_library(engine_testable STATIC
     ${ENGINE_CPP_DIR}/Engine.cpp
     ${ENGINE_CPP_DIR}/MelExtractor.cpp
+    ${ENGINE_CPP_DIR}/CqtExtractor.cpp
     ${ENGINE_CPP_DIR}/OnnxModel.cpp
-    FFT.cpp  # Uses pocketfft, same algorithm as numpy
+    ${ENGINE_CPP_DIR}/OnnxRuntime.cpp
+    ${ENGINE_CPP_DIR}/KeyModel.cpp
+    ${ENGINE_CPP_DIR}/Resampler.cpp
+    ${ENGINE_CPP_DIR}/FFT.cpp
 )
 
 target_include_directories(engine_testable PUBLIC
     ${ENGINE_CPP_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-# pocketfft is header-only
+# pocketfft is header-only (in cpp/ directory)
 target_compile_definitions(engine_testable PRIVATE
     POCKETFFT_NO_MULTITHREADING
 )
@@ -109,16 +137,19 @@ target_include_directories(catch2 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 # Test executable
 # ============================================================================
 set(TEST_SOURCES
-    test_main.cpp
     test_fft.cpp
     test_mel_extractor.cpp
-    test_integration.cpp
+    test_cqt_extractor.cpp
+    test_resampler.cpp
+    test_autocorr_bpm.cpp
+    test_error_handling.cpp
 )
 
 # Add ONNX tests if available
 if(ONNX_ENABLED)
     list(APPEND TEST_SOURCES
         test_onnx_model.cpp
+        test_key_model.cpp
         test_e2e.cpp
     )
 endif()
