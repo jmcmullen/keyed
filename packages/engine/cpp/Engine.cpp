@@ -134,11 +134,10 @@ void Engine::runKeyInference() {
 		return;
 	}
 
-	keyInferenceCount_++;
-	cqtFramesSinceInference_ = 0;
-
 	KeyOutput output;
 	if (keyModel_->inferVariable(cqtBuffer_.data(), static_cast<int>(cqtFrameCount_), output)) {
+		keyInferenceCount_++;
+		cqtFramesSinceInference_ = 0;
 		currentKey_.camelot = output.camelot;
 		currentKey_.notation = output.notation;
 		currentKey_.confidence = output.confidence;
@@ -163,7 +162,7 @@ int Engine::processAudio(const float* samples, int numSamples,
 		int cqtProduced = cqtExtractor_->push(samples, numSamples,
 		                                       cqtFrames.data(), MAX_CQT_FRAMES);
 
-		// Accumulate CQT frames into growing buffer (row-major: [freq][time])
+			// Accumulate CQT frames into growing buffer (row-major: [time][freq])
 		for (int i = 0; i < cqtProduced; i++) {
 			// Ensure buffer has space for new frame
 			size_t newSize = (cqtFrameCount_ + 1) * CqtConfig::N_BINS;
@@ -226,9 +225,10 @@ int Engine::processAudioForBpm(const float* samples, int numSamples,
 	}
 
 	int resultsProduced = 0;
+	int totalProduced = 0;
 
 	// Process each frame through ONNX
-	for (int i = 0; i < numFrames && resultsProduced < maxResults; i++) {
+	for (int i = 0; i < numFrames; i++) {
 		float* frameFeatures = &features[i * FEATURE_DIM];
 
 		// Run ONNX inference
@@ -242,18 +242,18 @@ int Engine::processAudioForBpm(const float* samples, int numSamples,
 
 		// Collect activations for autocorrelation BPM
 		activationBuffer_.push(currBeatAct, currDownAct);
+		totalProduced++;
 
 		// Fill result if output buffer provided
 		if (outResults && resultsProduced < maxResults) {
 			FrameResult& result = outResults[resultsProduced];
 			result.beatActivation = currBeatAct;
 			result.downbeatActivation = currDownAct;
+			resultsProduced++;
 		}
-
-		resultsProduced++;
 	}
 
-	return resultsProduced;
+	return outResults ? resultsProduced : totalProduced;
 }
 
 } // namespace engine

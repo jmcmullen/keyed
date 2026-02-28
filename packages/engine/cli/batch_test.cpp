@@ -16,6 +16,7 @@
 #include <vector>
 #include <cmath>
 #include <algorithm>
+#include <cctype>
 #include <libgen.h>
 #include <unistd.h>
 #include <mach-o/dyld.h>
@@ -192,12 +193,14 @@ std::vector<std::string> getAudioFiles(const std::string& path) {
 		while ((entry = readdir(dir)) != nullptr) {
 			std::string name = entry->d_name;
 			// Check for various audio extensions
-			auto hasExt = [&name](const std::string& ext) {
-				if (name.size() <= ext.size()) return false;
-				std::string suffix = name.substr(name.size() - ext.size());
-				for (char& c : suffix) c = tolower(c);
-				return suffix == ext;
-			};
+				auto hasExt = [&name](const std::string& ext) {
+					if (name.size() <= ext.size()) return false;
+					std::string suffix = name.substr(name.size() - ext.size());
+					for (char& c : suffix) {
+						c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+					}
+					return suffix == ext;
+				};
 			if (hasExt(".m4a") || hasExt(".mp3") || hasExt(".wav") ||
 			    hasExt(".ogg") || hasExt(".flac") || hasExt(".aiff") || hasExt(".aif")) {
 				files.push_back(path + "/" + name);
@@ -325,5 +328,8 @@ int main() {
 		printf("  None!\n");
 	}
 
-	return 0;
+	bool hasFailures =
+		(bpmPassed != static_cast<int>(results.size())) ||
+		(keyPassed != static_cast<int>(results.size()));
+	return hasFailures ? 1 : 0;
 }

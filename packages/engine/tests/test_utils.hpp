@@ -5,6 +5,7 @@
 #include <cmath>
 #include <random>
 #include <algorithm>
+#include <limits>
 
 namespace test_utils {
 
@@ -106,7 +107,7 @@ inline bool floatsEqual(float a, float b, float tolerance = 1e-5f) {
  * Find index of maximum value
  */
 inline size_t argmax(const std::vector<float>& v) {
-    if (v.empty()) return 0;
+    if (v.empty()) return std::numeric_limits<size_t>::max();
     return std::max_element(v.begin(), v.end()) - v.begin();
 }
 

@@ -108,6 +108,7 @@ TEST_CASE("Resampler attenuates frequencies above new Nyquist", "[resampler][ali
 
 	std::vector<float> output(resampler.getOutputSize(inputSize));
 	int outputSize = resampler.process(input.data(), inputSize, output.data());
+	REQUIRE(outputSize > 0);
 
 	// Calculate RMS of output (should be significantly attenuated)
 	float rmsOutput = 0.0f;

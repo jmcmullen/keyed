@@ -1,9 +1,10 @@
 #pragma once
 
+#include <string>
+
 #ifdef ONNX_ENABLED
 
 #include <memory>
-#include <string>
 #include <vector>
 
 // Forward declare ONNX Runtime types
@@ -68,7 +69,9 @@ public:
 	 * Model uses AdaptiveAvgPool2d so accepts any number of time frames >= 1
 	 * More frames = more context = higher accuracy
 	 *
-	 * @param cqtSpectrogram CQT features, row-major [freq][time] (105 x numFrames)
+	 * @param cqtSpectrogram CQT features, row-major [time][freq] (numFrames x 105)
+	 *                      Engine stores frames in time-major order; this method
+	 *                      transposes internally to [freq][time] for model input.
 	 * @param numFrames Number of time frames (should be >= 100 for good accuracy)
 	 * @param output Output key detection result
 	 * @return true if inference succeeded
@@ -127,6 +130,15 @@ public:
 	static constexpr int INPUT_TIME_FRAMES = 100;
 	static constexpr int INPUT_SIZE = INPUT_FREQ_BINS * INPUT_TIME_FRAMES;
 	static constexpr int NUM_CLASSES = 24;
+
+	inline static constexpr const char* CAMELOT_KEYS[NUM_CLASSES] = {
+		"1A", "2A", "3A", "4A", "5A", "6A", "7A", "8A", "9A", "10A", "11A", "12A",
+		"1B", "2B", "3B", "4B", "5B", "6B", "7B", "8B", "9B", "10B", "11B", "12B",
+	};
+	inline static constexpr const char* NOTATION_KEYS[NUM_CLASSES] = {
+		"G#m", "Ebm", "Bbm", "Fm", "Cm", "Gm", "Dm", "Am", "Em", "Bm", "F#m", "C#m",
+		"B", "F#", "Db", "Ab", "Eb", "Bb", "F", "C", "G", "D", "A", "E",
+	};
 };
 
 } // namespace engine

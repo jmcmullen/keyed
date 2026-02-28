@@ -149,7 +149,7 @@ TEST_CASE("KeyModel inference with CQT from sine wave", "[key][e2e]") {
 
 	// Process frames to fill 100 time frames
 	int framesExtracted = 0;
-	for (int frame = 0; frame < KeyModel::INPUT_TIME_FRAMES && framesExtracted < KeyModel::INPUT_TIME_FRAMES; frame++) {
+	for (int frame = 0; frame < KeyModel::INPUT_TIME_FRAMES; frame++) {
 		// Calculate center position for this frame
 		int centerSample = maxFilterLen / 2 + frame * hopLength;
 		if (centerSample + maxFilterLen / 2 > totalSamples) break;
@@ -178,12 +178,6 @@ TEST_CASE("KeyModel inference with CQT from sine wave", "[key][e2e]") {
 	REQUIRE(success);
 	INFO("Detected key: " << output.notation << " (" << output.camelot << ")");
 	INFO("Confidence: " << output.confidence);
-
-	// C major chord should detect C major or relative Am
-	// C major = index 15 (8B), Am = index 0 (8A)
-	bool isC = output.notation == "C";
-	bool isAm = output.notation == "Am";
-	bool isG = output.notation == "G";  // Also harmonically related
 
 	INFO("Key index: " << output.keyIndex);
 

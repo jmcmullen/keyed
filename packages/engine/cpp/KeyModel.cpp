@@ -329,7 +329,8 @@ bool KeyModel::inferVariable(const float* cqtSpectrogram, int numFrames, KeyOutp
 	auto& runtime = OnnxRuntime::instance();
 	OrtStatus* status = nullptr;
 
-	// Transpose from [time][freq] to [freq][time]
+	// Input arrives in row-major [time][freq] from Engine.
+	// Transpose to [freq][time] for ONNX input tensor shape [1, 1, freq, time].
 	std::vector<float> transposed(INPUT_FREQ_BINS * numFrames);
 	for (int t = 0; t < numFrames; t++) {
 		for (int f = 0; f < INPUT_FREQ_BINS; f++) {

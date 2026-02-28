@@ -251,10 +251,25 @@ bool OnnxModel::infer(const float* features, ModelOutput& output) {
         return false;
     }
 
-    float* hiddenOut = nullptr;
-    float* cellOut = nullptr;
-    (void)api_->GetTensorMutableData(outputs[1], (void**)&hiddenOut);
-    (void)api_->GetTensorMutableData(outputs[2], (void**)&cellOut);
+	float* hiddenOut = nullptr;
+	float* cellOut = nullptr;
+	OrtStatus* hiddenStatus = api_->GetTensorMutableData(outputs[1], (void**)&hiddenOut);
+	OrtStatus* cellStatus = api_->GetTensorMutableData(outputs[2], (void**)&cellOut);
+
+	if (hiddenStatus) {
+		LOGE(
+			"GetTensorMutableData (hidden_out) failed: %s\n",
+			api_->GetErrorMessage(hiddenStatus)
+		);
+		api_->ReleaseStatus(hiddenStatus);
+	}
+	if (cellStatus) {
+		LOGE(
+			"GetTensorMutableData (cell_out) failed: %s\n",
+			api_->GetErrorMessage(cellStatus)
+		);
+		api_->ReleaseStatus(cellStatus);
+	}
 
     if (hiddenOut) {
         std::memcpy(hidden_.data(), hiddenOut, hidden_.size() * sizeof(float));

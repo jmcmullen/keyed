@@ -5,8 +5,9 @@
  */
 
 #include "Resampler.hpp"
-#include <cmath>
 #include <algorithm>
+#include <cmath>
+#include <stdexcept>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -53,6 +54,13 @@ Resampler::Resampler(int inputRate, int outputRate)
 	, outputRate_(outputRate)
 	, ratio_(inputRate / outputRate)
 {
+	if (inputRate_ <= 0 || outputRate_ <= 0) {
+		throw std::invalid_argument("Resampler sample rates must be positive");
+	}
+	if (inputRate_ % outputRate_ != 0 || ratio_ != RATIO) {
+		throw std::invalid_argument("Resampler only supports 2:1 downsampling (44100 -> 22050)");
+	}
+
 	// Generate low-pass filter with cutoff below new Nyquist
 	// For 2:1 downsample: new Nyquist is at 0.5 of input, so cutoff at ~0.45
 	// The sinc cutoff parameter is normalized to 2.0 = Nyquist of input
@@ -101,25 +109,29 @@ int Resampler::process(const float* input, int inputSize, float* output) {
 
 int Resampler::processStreaming(const float* input, int inputSize, float* output, int maxOutputSize) {
 	// Create working buffer with history
-	std::vector<float> buffer(historySize_ + inputSize);
+	streamBuffer_.resize(historySize_ + inputSize);
 
 	// Copy history to beginning
-	std::copy(history_.begin(), history_.end(), buffer.begin());
+	std::copy(history_.begin(), history_.end(), streamBuffer_.begin());
 
 	// Append new input
-	std::copy(input, input + inputSize, buffer.begin() + historySize_);
+	std::copy(input, input + inputSize, streamBuffer_.begin() + historySize_);
 
 	const int halfLen = filterLength_ / 2;
 	int outputIdx = 0;
 
 	// Process starting from where we have full filter context
-	for (int n = halfLen; n < static_cast<int>(buffer.size()) - halfLen && outputIdx < maxOutputSize; n += ratio_) {
+	for (
+		int n = halfLen;
+		n < static_cast<int>(streamBuffer_.size()) - halfLen && outputIdx < maxOutputSize;
+		n += ratio_
+	) {
 		float sum = 0.0f;
 
 		// Apply FIR filter
 		for (int k = 0; k < filterLength_; k++) {
 			int inputIdx = n - halfLen + k;
-			sum += buffer[inputIdx] * coefficients_[k];
+			sum += streamBuffer_[inputIdx] * coefficients_[k];
 		}
 
 		output[outputIdx++] = sum;
@@ -127,9 +139,9 @@ int Resampler::processStreaming(const float* input, int inputSize, float* output
 
 	// Update history with the last samples of the combined buffer
 	// We need to keep enough samples for the next filter operation
-	int bufferSize = static_cast<int>(buffer.size());
+	int bufferSize = static_cast<int>(streamBuffer_.size());
 	if (bufferSize >= historySize_) {
-		std::copy(buffer.end() - historySize_, buffer.end(), history_.begin());
+		std::copy(streamBuffer_.end() - historySize_, streamBuffer_.end(), history_.begin());
 	}
 
 	return outputIdx;

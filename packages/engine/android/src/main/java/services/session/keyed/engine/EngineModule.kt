@@ -296,6 +296,7 @@ class EngineModule : Module() {
 				val read = try {
 					recorder.read(buffer, 0, buffer.size, AudioRecord.READ_BLOCKING)
 				} catch (e: IllegalStateException) {
+					Log.w(TAG, "AudioRecord.read() failed: ${e.message}", e)
 					break
 				}
 
@@ -349,7 +350,7 @@ class EngineModule : Module() {
 	}
 
 	private fun processAudioSamples(samples: FloatArray, enableWaveform: Boolean) {
-		val results = nativeProcessAudio(samples) ?: return
+		val results = nativeProcessAudio(samples)
 		val timestampSeconds = if (recordingStartTimeNs > 0L) {
 			(System.nanoTime() - recordingStartTimeNs).toDouble() / 1_000_000_000.0
 		} else {
@@ -357,12 +358,14 @@ class EngineModule : Module() {
 		}
 
 		// Emit BPM state events
-		for (result in results) {
-			sendEvent("onState", mapOf(
-				"beatActivation" to result.beatActivation.toDouble(),
-				"downbeatActivation" to result.downbeatActivation.toDouble(),
-				"timestamp" to timestampSeconds
-			))
+		if (results != null) {
+			for (result in results) {
+				sendEvent("onState", mapOf(
+					"beatActivation" to result.beatActivation.toDouble(),
+					"downbeatActivation" to result.downbeatActivation.toDouble(),
+					"timestamp" to timestampSeconds
+				))
+			}
 		}
 
 		// Check for key detection updates (emit on key change OR significant confidence change)

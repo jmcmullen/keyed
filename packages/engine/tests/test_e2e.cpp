@@ -12,6 +12,7 @@
 #include "Engine.hpp"
 #include "test_utils.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <vector>
 
@@ -163,10 +164,16 @@ TEST_CASE("Engine dual pipeline processing", "[e2e][key]") {
     std::vector<Engine::FrameResult> results(2000);
     int chunkSize = Engine::SAMPLE_RATE / 10;  // 100ms chunks
 
-    for (int offset = 0; offset < totalSamples; offset += chunkSize) {
-        int samplesToProcess = std::min(chunkSize, totalSamples - offset);
-        engine.processAudio(audio.data() + offset, samplesToProcess, results.data(), results.size());
-    }
+	for (int offset = 0; offset < totalSamples; offset += chunkSize) {
+		int samplesToProcess = std::min(chunkSize, totalSamples - offset);
+		int produced = engine.processAudio(
+			audio.data() + offset,
+			samplesToProcess,
+			results.data(),
+			results.size()
+		);
+		REQUIRE(produced >= 0);
+	}
 
     // Check BPM detection is working
     size_t bpmFrames = engine.getFrameCount();

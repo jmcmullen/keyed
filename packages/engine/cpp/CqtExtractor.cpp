@@ -14,8 +14,10 @@
 
 #include "CqtExtractor.hpp"
 #include <algorithm>
+#include <cstdint>
 #include <cmath>
 #include <cstring>
+#include <limits>
 
 namespace engine {
 
@@ -216,9 +218,9 @@ struct StreamingCqtExtractor::Impl {
 
 	// Circular buffer for audio samples
 	std::vector<float> buffer;
-	int writePos;
-	int samplesReceived;
-	int frameCount;
+	int64_t writePos;
+	int64_t samplesReceived;
+	int64_t frameCount;
 
 	// Buffer needs to hold enough samples for:
 	// 1. The longest filter (for lowest frequency bin)
@@ -264,7 +266,7 @@ int StreamingCqtExtractor::push(const float* samples, int numSamples,
 
 	for (int i = 0; i < numSamples; i++) {
 		// Write sample to buffer (with wrap-around)
-		impl.buffer[impl.writePos % Impl::BUFFER_SIZE] = samples[i];
+		impl.buffer[static_cast<size_t>(impl.writePos % Impl::BUFFER_SIZE)] = samples[i];
 		impl.writePos++;
 		impl.samplesReceived++;
 
@@ -272,32 +274,38 @@ int StreamingCqtExtractor::push(const float* samples, int numSamples,
 		// Frame N is centered at sample N * hopLength
 		// We need maxFilterLen/2 samples after the center for centered framing
 		// samplesNeeded = N * hopLength + maxFilterLen/2
-		int samplesNeeded = impl.frameCount * hopLength + maxFilterLen / 2;
+		int64_t samplesNeeded =
+			impl.frameCount * static_cast<int64_t>(hopLength) + maxFilterLen / 2;
 
-		if (impl.samplesReceived >= samplesNeeded && framesProduced < maxFrames) {
-			// Extract audio window for this frame
-			// Frame N is centered at sample N * hopLength
-			int frameCenter = impl.frameCount * hopLength;
+		if (impl.samplesReceived >= samplesNeeded) {
+			// Frame N is centered at sample N * hopLength.
+			int64_t frameCenter = impl.frameCount * static_cast<int64_t>(hopLength);
 
-			// We need maxFilterLen samples centered at frameCenter
-			// Extract from buffer
-			std::vector<float> frameAudio(maxFilterLen);
+			if (framesProduced < maxFrames) {
+				// We need maxFilterLen samples centered at frameCenter.
+				std::vector<float> frameAudio(maxFilterLen);
 
-			int startSample = frameCenter - maxFilterLen / 2;
-			for (int j = 0; j < maxFilterLen; j++) {
-				int sampleIdx = startSample + j;
-				// Map to buffer position (accounting for initial padding)
-				int bufIdx = (Impl::PADDING + sampleIdx) % Impl::BUFFER_SIZE;
-				if (bufIdx < 0) bufIdx += Impl::BUFFER_SIZE;
-				frameAudio[j] = impl.buffer[bufIdx];
+				int64_t startSample = frameCenter - maxFilterLen / 2;
+				for (int j = 0; j < maxFilterLen; j++) {
+					int64_t sampleIdx = startSample + j;
+					// Map to buffer position (accounting for initial padding).
+					int64_t bufIdx = (Impl::PADDING + sampleIdx) % Impl::BUFFER_SIZE;
+					if (bufIdx < 0) {
+						bufIdx += Impl::BUFFER_SIZE;
+					}
+					frameAudio[j] = impl.buffer[static_cast<size_t>(bufIdx)];
+				}
+
+				// Process frame.
+				impl.extractor.processFrame(
+					frameAudio.data(), maxFilterLen,
+					cqtFrames + framesProduced * CqtConfig::N_BINS);
+
+				framesProduced++;
 			}
 
-			// Process frame
-			impl.extractor.processFrame(
-				frameAudio.data(), maxFilterLen,
-				cqtFrames + framesProduced * CqtConfig::N_BINS);
-
-			framesProduced++;
+			// Always advance frameCount once the frame becomes available.
+			// This keeps scheduling in sync even when caller's maxFrames is reached.
 			impl.frameCount++;
 		}
 	}
@@ -306,7 +314,10 @@ int StreamingCqtExtractor::push(const float* samples, int numSamples,
 }
 
 int StreamingCqtExtractor::getFrameCount() const {
-	return impl_->frameCount;
+	if (impl_->frameCount > std::numeric_limits<int>::max()) {
+		return std::numeric_limits<int>::max();
+	}
+	return static_cast<int>(impl_->frameCount);
 }
 
 } // namespace engine

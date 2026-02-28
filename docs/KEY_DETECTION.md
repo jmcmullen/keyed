@@ -47,4 +47,4 @@ bun run test:native
 
 ## Notes
 - Key confidence improves with longer listening windows.
-- `getKeyFrameCount()` can be used in UI to gate confidence messaging.
+- `getKeyFrameCount()` can be used in the UI to gate confidence messaging.

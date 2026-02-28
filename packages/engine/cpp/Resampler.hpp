@@ -74,6 +74,7 @@ private:
 
 	// State for streaming mode
 	std::vector<float> history_;
+	std::vector<float> streamBuffer_;
 	int historySize_;
 };
 

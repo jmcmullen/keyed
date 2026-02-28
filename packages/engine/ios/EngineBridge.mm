@@ -92,13 +92,17 @@
 // =============================================================================
 
 - (BOOL)loadModel:(NSString *)modelPath {
-	try {
-		if (![self ensureEngineInitialized]) {
-			NSLog(@"[EngineBridge] loadModel: engine not initialized");
-			return NO;
-		}
-		NSLog(@"[EngineBridge] loadModel: loading from %@", modelPath);
-		BOOL result = _engine->loadModel(std::string([modelPath UTF8String]));
+		try {
+			if (![self ensureEngineInitialized]) {
+				NSLog(@"[EngineBridge] loadModel: engine not initialized");
+				return NO;
+			}
+			if (modelPath == nil) {
+				NSLog(@"[EngineBridge] loadModel: modelPath is nil");
+				return NO;
+			}
+			NSLog(@"[EngineBridge] loadModel: loading from %@", modelPath);
+			BOOL result = _engine->loadModel(std::string([modelPath UTF8String]));
 		NSLog(@"[EngineBridge] loadModel: result = %@", result ? @"YES" : @"NO");
 		return result;
 	} catch (const std::exception& e) {
@@ -151,13 +155,17 @@
 // =============================================================================
 
 - (BOOL)loadKeyModel:(NSString *)modelPath {
-	try {
-		if (![self ensureEngineInitialized]) {
-			NSLog(@"[EngineBridge] loadKeyModel: engine not initialized");
-			return NO;
-		}
-		NSLog(@"[EngineBridge] loadKeyModel: loading from %@", modelPath);
-		BOOL result = _engine->loadKeyModel(std::string([modelPath UTF8String]));
+		try {
+			if (![self ensureEngineInitialized]) {
+				NSLog(@"[EngineBridge] loadKeyModel: engine not initialized");
+				return NO;
+			}
+			if (modelPath == nil) {
+				NSLog(@"[EngineBridge] loadKeyModel: modelPath is nil");
+				return NO;
+			}
+			NSLog(@"[EngineBridge] loadKeyModel: loading from %@", modelPath);
+			BOOL result = _engine->loadKeyModel(std::string([modelPath UTF8String]));
 		NSLog(@"[EngineBridge] loadKeyModel: result = %@", result ? @"YES" : @"NO");
 		return result;
 	} catch (const std::exception& e) {
@@ -226,10 +234,10 @@
 // =============================================================================
 
 - (nullable NSArray<EngineFrameResult *> *)processAudio:(NSArray<NSNumber *> *)samples {
-	try {
-		if (!_engine || samples.count == 0) {
-			return nil;
-		}
+		try {
+			if (!_engine || samples.count == 0) {
+				return @[];
+			}
 
 		// Convert NSArray to float array
 		std::vector<float> floatSamples(samples.count);
@@ -244,9 +252,9 @@
 		                                       _resultBuffer.data(),
 		                                       maxResults);
 
-		if (numResults == 0) {
-			return nil;
-		}
+			if (numResults == 0) {
+				return @[];
+			}
 
 		// Convert to NSArray of EngineFrameResult
 		NSMutableArray<EngineFrameResult *> *results = [NSMutableArray arrayWithCapacity:numResults];
@@ -268,10 +276,10 @@
 }
 
 - (nullable NSArray<EngineFrameResult *> *)processAudioForBpm:(NSArray<NSNumber *> *)samples {
-	try {
-		if (!_engine || !_engine->isReady() || samples.count == 0) {
-			return nil;
-		}
+		try {
+			if (!_engine || !_engine->isReady() || samples.count == 0) {
+				return @[];
+			}
 
 		// Convert NSArray to float array
 		std::vector<float> floatSamples(samples.count);
@@ -286,9 +294,9 @@
 		                                             _resultBuffer.data(),
 		                                             maxResults);
 
-		if (numResults == 0) {
-			return nil;
-		}
+			if (numResults == 0) {
+				return @[];
+			}
 
 		// Convert to NSArray of EngineFrameResult
 		NSMutableArray<EngineFrameResult *> *results = [NSMutableArray arrayWithCapacity:numResults];

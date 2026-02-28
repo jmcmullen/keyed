@@ -177,7 +177,8 @@ TEST_CASE("CQT output range", "[cqt][range]") {
 	}
 
 	std::vector<float> cqtBins(CqtConfig::N_BINS);
-	extractor.processFrame(audio.data(), maxFilterLen, cqtBins.data());
+	bool success = extractor.processFrame(audio.data(), maxFilterLen, cqtBins.data());
+	REQUIRE(success);
 
 	// Output should be non-negative (magnitude + log1p)
 	for (int i = 0; i < CqtConfig::N_BINS; i++) {
