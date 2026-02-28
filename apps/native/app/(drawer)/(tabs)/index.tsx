@@ -1,5 +1,11 @@
 import { useEffect, useState } from "react";
-import { Pressable, Text, useWindowDimensions, View } from "react-native";
+import {
+	Platform,
+	Pressable,
+	Text,
+	useWindowDimensions,
+	View,
+} from "react-native";
 import Animated, {
 	useAnimatedStyle,
 	useSharedValue,
@@ -45,21 +51,22 @@ export default function BeatNetTab() {
 		opacity: pulseOpacity.value,
 	}));
 
-	const buttonGlowAnimatedStyle = useAnimatedStyle(
-		() => {
-			const beatBoost = beatActivation.value * 0.8 + downbeatActivation.value * 1.2;
-			const pulseScale = isListening ? 1 + beatBoost * 0.06 : 1;
-			const glowOpacity = isListening ? 0.2 + beatBoost * 0.45 : 0.12;
-			const glowRadius = isListening ? 10 + beatBoost * 20 : 8;
+	const buttonGlowAnimatedStyle = useAnimatedStyle(() => {
+		const beatBoost =
+			beatActivation.value * 0.8 + downbeatActivation.value * 1.2;
+		const pulseScale = isListening ? 1 + beatBoost * 0.06 : 1;
+		const glowOpacity = isListening ? 0.2 + beatBoost * 0.45 : 0.12;
+		const glowRadius = isListening ? 10 + beatBoost * 20 : 8;
+		const clampedGlowOpacity = Math.max(0, Math.min(glowOpacity, 1));
+		const androidElevation = isListening ? 4 + beatBoost * 8 : 2;
 
-			return {
-				transform: [{ scale: pulseScale }],
-				shadowOpacity: glowOpacity,
-				shadowRadius: glowRadius,
-			};
-		},
-		[isListening],
-	);
+		return {
+			transform: [{ scale: pulseScale }],
+			shadowOpacity: clampedGlowOpacity,
+			shadowRadius: glowRadius,
+			elevation: Platform.OS === "android" ? androidElevation : 0,
+		};
+	}, [isListening]);
 
 	const handlePress = async () => {
 		if (isListening) {
@@ -130,8 +137,6 @@ export default function BeatNetTab() {
 				/>
 			</View>
 
-
-
 			{error && <Text style={styles.errorText}>{error}</Text>}
 
 			{/* Button */}
@@ -155,7 +160,10 @@ export default function BeatNetTab() {
 					>
 						<View style={styles.buttonInnerRing}>
 							<Text
-								style={[styles.buttonText, isListening && styles.buttonTextActive]}
+								style={[
+									styles.buttonText,
+									isListening && styles.buttonTextActive,
+								]}
 							>
 								{getButtonText()}
 							</Text>
