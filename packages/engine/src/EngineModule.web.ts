@@ -1,48 +1,72 @@
 import { NativeModule, registerWebModule } from "expo";
-import type { EngineModuleEvents, ProcessResult } from "./Engine.types";
+import type {
+	EngineModuleEvents,
+	FrameResult,
+	KeyResult,
+} from "./Engine.types";
 
 class EngineModuleWeb extends NativeModule<EngineModuleEvents> {
-	FFT_SIZE = 1411;
-	SAMPLE_RATE = 22050;
-	HOP_LENGTH = 441;
-	N_MELS = 136;
-	FPS = 50;
+	SAMPLE_RATE = 44100;
+	BPM_SAMPLE_RATE = 22050;
+	KEY_SAMPLE_RATE = 44100;
+	BPM_FPS = 50;
+	KEY_FPS = 5;
 
-	hello(): string {
-		return "Engine web module (stub)";
+	loadModel(): boolean {
+		return false;
 	}
 
-	getFFTSize(): number {
-		return 1411;
+	isReady(): boolean {
+		return false;
 	}
 
-	async process(_samples: number[]): Promise<ProcessResult> {
-		return {
-			beat: null,
-			bpm: 0,
-			phase: 0,
-			meter: 4,
-			confidence: 0,
-		};
+	loadKeyModel(): boolean {
+		return false;
+	}
+
+	isKeyReady(): boolean {
+		return false;
+	}
+
+	getKey(): KeyResult | null {
+		return null;
+	}
+
+	getKeyFrameCount(): number {
+		return 0;
+	}
+
+	async requestPermission(): Promise<boolean> {
+		return false;
+	}
+
+	getPermissionStatus(): "granted" | "denied" | "undetermined" {
+		return "denied";
+	}
+
+	async startRecording(_enableWaveform = true): Promise<boolean> {
+		return false;
+	}
+
+	stopRecording(): void {}
+
+	isRecording(): boolean {
+		return false;
+	}
+
+	processAudio(_samples: Float32Array | number[]): FrameResult[] | null {
+		return null;
+	}
+
+	getBpm(): number {
+		return 0;
+	}
+
+	getFrameCount(): number {
+		return 0;
 	}
 
 	reset(): void {}
-
-	getCurrentBpm(): number {
-		return 0;
-	}
-
-	getCurrentPhase(): number {
-		return 0;
-	}
-
-	getCurrentMeter(): number {
-		return 4;
-	}
-
-	getConfidence(): number {
-		return 0;
-	}
 }
 
 export default registerWebModule(EngineModuleWeb, "Engine");

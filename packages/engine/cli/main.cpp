@@ -1,5 +1,5 @@
 /**
- * BeatNet CLI - Real-time beat detection from microphone
+ * Engine CLI - Real-time BPM and Key detection from microphone
  *
  * Usage: ./beatnet_cli [-d <device>] [-l]
  */
@@ -22,14 +22,14 @@
 
 using namespace engine;
 
-// Model path (Ballroom-trained, best for dance music)
-// Relative to cli/build directory
-constexpr const char* MODEL_PATH = "../../models/beatnet.onnx";
+// Model paths (relative to cli/build directory)
+constexpr const char* BPM_MODEL_PATH = "../../models/beatnet.onnx";
+constexpr const char* KEY_MODEL_PATH = "../../models/keynet.onnx";
 
-// Audio settings
-constexpr int SAMPLE_RATE = 22050;
+// Audio settings - use 44100 Hz for key detection (resampled internally for BPM)
+constexpr int SAMPLE_RATE = 44100;
 constexpr int CHANNELS = 1;
-constexpr int BUFFER_SIZE = 441;  // 20ms at 22050Hz (matches hop length)
+constexpr int BUFFER_SIZE = 882;  // 20ms at 44100Hz
 
 // Global state
 std::atomic<bool> g_running{true};
@@ -70,8 +70,9 @@ void printUsage(const char* progName) {
 	printf("  -l          List available audio input devices\n");
 	printf("  -d <index>  Use device at index (from -l output)\n");
 	printf("\n");
-	printf("Real-time beat detection from audio input.\n");
-	printf("Uses BeatNet Model 2 (Ballroom-trained, best for dance music).\n");
+	printf("Real-time BPM and Key detection from audio input.\n");
+	printf("BPM: BeatNet neural network (Ballroom-trained)\n");
+	printf("Key: MusicalKeyCNN with CQT spectrogram analysis\n");
 	printf("Press Ctrl+C to stop.\n");
 }
 
@@ -108,26 +109,39 @@ void printStatus() {
 	auto now = std::chrono::steady_clock::now();
 	auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - g_startTime).count();
 
-	// Get BPM (hold mutex briefly to read engine state)
+	// Get BPM and Key (hold mutex briefly to read engine state)
 	float bpm;
-	size_t frameCount;
+	size_t bpmFrames;
+	Engine::KeyResult keyResult;
+	size_t keyFrames;
 	{
 		std::lock_guard<std::mutex> lock(g_mutex);
 		bpm = g_engine.getBpm();
-		frameCount = g_engine.getFrameCount();
+		bpmFrames = g_engine.getFrameCount();
+		keyResult = g_engine.getKey();
+		keyFrames = g_engine.getKeyFrameCount();
 	}
 
+	// Build status line
+	char bpmStr[32];
 	if (bpm > 0) {
-		printf("\r[%02lld:%02lld] BPM: %5.0f | frames: %4zu   ",
-			(long long)(elapsed / 60), (long long)(elapsed % 60),
-			bpm,
-			frameCount);
+		snprintf(bpmStr, sizeof(bpmStr), "%5.0f", bpm);
 	} else {
-		// Not enough frames yet
-		printf("\r[%02lld:%02lld] BPM: analyzing... (%zu frames)   ",
-			(long long)(elapsed / 60), (long long)(elapsed % 60),
-			frameCount);
+		snprintf(bpmStr, sizeof(bpmStr), "  ...");
 	}
+
+	char keyStr[32];
+	if (keyResult.valid) {
+		snprintf(keyStr, sizeof(keyStr), "%s (%s) %2.0f%%",
+			keyResult.notation.c_str(), keyResult.camelot.c_str(),
+			keyResult.confidence * 100.0f);
+	} else {
+		snprintf(keyStr, sizeof(keyStr), "... (%zu/100 frames)", keyFrames);
+	}
+
+	printf("\r[%02lld:%02lld] BPM: %s | Key: %-20s   ",
+		(long long)(elapsed / 60), (long long)(elapsed % 60),
+		bpmStr, keyStr);
 	fflush(stdout);
 }
 
@@ -171,13 +185,21 @@ int main(int argc, char* argv[]) {
 		return 0;
 	}
 
-	// Load model
-	printf("Loading model: %s\n", MODEL_PATH);
-	if (!g_engine.loadModel(MODEL_PATH)) {
-		fprintf(stderr, "Error: Failed to load model\n");
+	// Load BPM model
+	printf("Loading BPM model: %s\n", BPM_MODEL_PATH);
+	if (!g_engine.loadModel(BPM_MODEL_PATH)) {
+		fprintf(stderr, "Error: Failed to load BPM model\n");
 		return 1;
 	}
-	printf("Model loaded successfully\n\n");
+	printf("BPM model loaded\n");
+
+	// Load Key model
+	printf("Loading Key model: %s\n", KEY_MODEL_PATH);
+	if (!g_engine.loadKeyModel(KEY_MODEL_PATH)) {
+		fprintf(stderr, "Error: Failed to load Key model\n");
+		return 1;
+	}
+	printf("Key model loaded\n\n");
 
 	// Setup signal handler
 	signal(SIGINT, signalHandler);
@@ -272,18 +294,32 @@ int main(int argc, char* argv[]) {
 		std::chrono::steady_clock::now() - g_startTime).count();
 
 	float bpm = g_engine.getBpm();
-	size_t frameCount = g_engine.getFrameCount();
+	size_t bpmFrames = g_engine.getFrameCount();
+	auto keyResult = g_engine.getKey();
+	size_t keyFrames = g_engine.getKeyFrameCount();
 
 	printf("\n");
 	printf("Session Summary\n");
 	printf("===============\n");
 	printf("Duration: %lld:%02lld\n", (long long)(elapsed / 60), (long long)(elapsed % 60));
-	printf("Frames processed: %zu\n", frameCount);
 	printf("\n");
+
+	printf("BPM Detection:\n");
+	printf("  Frames: %zu\n", bpmFrames);
 	if (bpm > 0) {
-		printf("Detected BPM: %.0f\n", bpm);
+		printf("  Result: %.0f BPM\n", bpm);
 	} else {
-		printf("BPM: Not enough data (need ~2 seconds of audio)\n");
+		printf("  Result: Not enough data (need ~2 seconds)\n");
+	}
+	printf("\n");
+
+	printf("Key Detection:\n");
+	printf("  CQT Frames: %zu / 100\n", keyFrames);
+	if (keyResult.valid) {
+		printf("  Result: %s (%s)\n", keyResult.notation.c_str(), keyResult.camelot.c_str());
+		printf("  Confidence: %.0f%%\n", keyResult.confidence * 100.0f);
+	} else {
+		printf("  Result: Not enough data (need ~20 seconds)\n");
 	}
 
 	return 0;

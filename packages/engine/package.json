@@ -6,6 +6,7 @@
 	"types": "src/index.ts",
 	"scripts": {
 		"build": "expo-module build",
+		"check-types": "tsc --noEmit",
 		"clean": "expo-module clean"
 	},
 	"keywords": [

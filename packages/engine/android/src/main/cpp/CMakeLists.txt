@@ -33,8 +33,11 @@ add_library(engine SHARED
     ${SHARED_CPP_DIR}/Engine.cpp
     ${SHARED_CPP_DIR}/FFT.cpp
     ${SHARED_CPP_DIR}/MelExtractor.cpp
-    ${SHARED_CPP_DIR}/ParticleFilter.cpp
     ${SHARED_CPP_DIR}/OnnxModel.cpp
+    ${SHARED_CPP_DIR}/OnnxRuntime.cpp
+    ${SHARED_CPP_DIR}/CqtExtractor.cpp
+    ${SHARED_CPP_DIR}/KeyModel.cpp
+    ${SHARED_CPP_DIR}/Resampler.cpp
     # Android-specific JNI bindings
     EngineJNI.cpp
 )

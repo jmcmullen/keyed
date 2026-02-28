@@ -6,14 +6,53 @@ version = '0.1.0'
 // ONNX Runtime - Download AAR and extract native libraries
 def onnxVersion = "1.21.0"
 def onnxAarDir = "$buildDir/onnxruntime"
+// SHA-256 for onnxruntime-android-${onnxVersion}.aar; update this when onnxVersion changes.
+def onnxAarSha256 = "8b675e9680b8cc02dca706a5e3b4e35cc8506de5bdf206fdae68081cbd804414"
+
+def sha256 = { File file ->
+	def digest = java.security.MessageDigest.getInstance("SHA-256")
+	file.withInputStream { stream ->
+		byte[] buffer = new byte[8192]
+		int bytesRead
+		while ((bytesRead = stream.read(buffer)) != -1) {
+			digest.update(buffer, 0, bytesRead)
+		}
+	}
+	return digest.digest().collect { String.format("%02x", it) }.join("")
+}
 
 task downloadOnnxRuntime {
     doLast {
         def aarFile = file("$onnxAarDir/onnxruntime.aar")
-        if (!aarFile.exists()) {
+        def shouldDownload = !aarFile.exists()
+        def actualHash = null
+        if (!shouldDownload) {
+            def existingHash = sha256(aarFile)
+            shouldDownload = existingHash != onnxAarSha256
+            if (shouldDownload) {
+                logger.lifecycle("ONNX Runtime checksum mismatch, re-downloading AAR")
+                if (!aarFile.delete()) {
+                    throw new GradleException("Failed to delete stale ONNX Runtime AAR: ${aarFile}")
+                }
+            } else {
+                actualHash = existingHash
+            }
+        }
+        if (shouldDownload) {
             mkdir onnxAarDir
             def url = "https://repo1.maven.org/maven2/com/microsoft/onnxruntime/onnxruntime-android/$onnxVersion/onnxruntime-android-$onnxVersion.aar"
-            ant.get(src: url, dest: aarFile)
+            ant.get(src: url, dest: aarFile, usetimestamp: true)
+            if (!aarFile.exists() || aarFile.length() == 0) {
+                throw new GradleException("ONNX Runtime download failed or produced incomplete file: ${aarFile}")
+            }
+            actualHash = sha256(aarFile)
+        }
+
+        if (actualHash != onnxAarSha256) {
+            if (aarFile.exists() && !aarFile.delete()) {
+                throw new GradleException("Failed to delete invalid ONNX Runtime AAR: ${aarFile}")
+            }
+            throw new GradleException("ONNX Runtime checksum verification failed. Expected $onnxAarSha256, got $actualHash")
         }
     }
 }

@@ -29,13 +29,17 @@ Pod::Spec.new do |s|
 
   s.public_header_files = 'ios/EngineBridge.h'
 
-  # Bundle ONNX model as a resource
-  s.resources = ['models/*.onnx']
+  # Bundle ONNX models in a named resource bundle for reliable access in frameworks
+  s.resource_bundles = {
+    'EngineResources' => ['models/*.onnx']
+  }
 
   s.pod_target_xcconfig = {
     'DEFINES_MODULE' => 'YES',
     'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17',
     'CLANG_CXX_LIBRARY' => 'libc++',
+    'GCC_ENABLE_CPP_EXCEPTIONS' => 'YES',
+    'GCC_ENABLE_OBJC_EXCEPTIONS' => 'YES',
     'HEADER_SEARCH_PATHS' => '"$(PODS_TARGET_SRCROOT)/cpp" "$(PODS_ROOT)/onnxruntime-c/onnxruntime.xcframework/ios-arm64/onnxruntime.framework/Headers" "$(PODS_ROOT)/onnxruntime-c/onnxruntime.xcframework/ios-arm64_x86_64-simulator/onnxruntime.framework/Headers"',
     'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited) ONNX_ENABLED=1 ONNX_ENABLE_COREML=1',
   }

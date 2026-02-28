@@ -93,8 +93,7 @@ bool OnnxModel::load(const std::string& modelPath) {
         return false;
     }
 
-    // Set optimization level
-    api_->SetSessionGraphOptimizationLevel(sessionOptions_, ORT_ENABLE_ALL);
+    (void)api_->SetSessionGraphOptimizationLevel(sessionOptions_, ORT_ENABLE_ALL);
 
     // Enable hardware acceleration based on platform
 #ifdef __ANDROID__
@@ -252,11 +251,25 @@ bool OnnxModel::infer(const float* features, ModelOutput& output) {
         return false;
     }
 
-    // Update LSTM hidden state for next frame
-    float* hiddenOut = nullptr;
-    float* cellOut = nullptr;
-    api_->GetTensorMutableData(outputs[1], (void**)&hiddenOut);
-    api_->GetTensorMutableData(outputs[2], (void**)&cellOut);
+	float* hiddenOut = nullptr;
+	float* cellOut = nullptr;
+	OrtStatus* hiddenStatus = api_->GetTensorMutableData(outputs[1], (void**)&hiddenOut);
+	OrtStatus* cellStatus = api_->GetTensorMutableData(outputs[2], (void**)&cellOut);
+
+	if (hiddenStatus) {
+		LOGE(
+			"GetTensorMutableData (hidden_out) failed: %s\n",
+			api_->GetErrorMessage(hiddenStatus)
+		);
+		api_->ReleaseStatus(hiddenStatus);
+	}
+	if (cellStatus) {
+		LOGE(
+			"GetTensorMutableData (cell_out) failed: %s\n",
+			api_->GetErrorMessage(cellStatus)
+		);
+		api_->ReleaseStatus(cellStatus);
+	}
 
     if (hiddenOut) {
         std::memcpy(hidden_.data(), hiddenOut, hidden_.size() * sizeof(float));

@@ -9,6 +9,15 @@ export interface FrameResult {
 	downbeatActivation: number;
 }
 
+export interface KeyResult {
+	/** Camelot notation: "1A" - "12B" */
+	camelot: string;
+	/** Musical notation: "Am", "C", etc. */
+	notation: string;
+	/** Confidence score (0-1) */
+	confidence: number;
+}
+
 export interface ProcessResult {
 	/** Detected beat type, or null if no beat */
 	beat: "beat" | "downbeat" | null;
@@ -23,10 +32,16 @@ export interface ProcessResult {
 }
 
 export interface EngineConstants {
-	/** Sample rate in Hz */
+	/** Native sample rate in Hz (44100) */
 	SAMPLE_RATE: number;
-	/** Frames per second */
-	FPS: number;
+	/** BPM pipeline sample rate in Hz (22050) */
+	BPM_SAMPLE_RATE: number;
+	/** Key detection sample rate in Hz (44100) */
+	KEY_SAMPLE_RATE: number;
+	/** BPM frames per second (50) */
+	BPM_FPS: number;
+	/** Key detection frames per second (5) */
+	KEY_FPS: number;
 }
 
 export interface State {
@@ -53,9 +68,11 @@ export interface WaveformData {
 	high: number;
 }
 
-export interface EngineModuleEvents {
+export type EngineModuleEvents = {
 	/** Fired every frame with current state (50 FPS) */
 	onState: (event: State) => void;
 	/** Fired with waveform data for visualization (throttled) */
 	onWaveform: (event: WaveformData) => void;
-}
+	/** Fired when key detection updates (~every 10 seconds) */
+	onKey: (event: KeyResult) => void;
+};
