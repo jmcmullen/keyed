@@ -10,15 +10,11 @@ import {
 } from "@shopify/react-native-skia";
 import { useEffect, useMemo } from "react";
 import { View } from "react-native";
-import {
-	type SharedValue,
-	useDerivedValue,
-	useSharedValue,
-} from "react-native-reanimated";
-import { StyleSheet } from "react-native-unistyles";
+import { useDerivedValue, useSharedValue } from "react-native-reanimated";
+import { StyleSheet, useUnistyles } from "react-native-unistyles";
 
 interface WaveformProps {
-	samples: SharedValue<number[]>;
+	samples: number[];
 	width: number;
 	height: number;
 	isActive?: boolean;
@@ -27,17 +23,14 @@ interface WaveformProps {
 	cuePoints?: number[];
 }
 
-// Visual constants
 const LINE_WIDTH = 1;
 const LINE_GAP = 1;
 const LINE_SPACING = LINE_WIDTH + LINE_GAP;
 const PEAK_DECAY = 0.85;
 const MIN_PEAK = 0.01;
 
-// Colors
-const BASS_COLOR = "#0040d0";
-const MID_COLOR = "#00ccff";
-const HIGH_COLOR = "#ffffff";
+const EMPTY_GRID_MARKERS: number[] = [];
+const EMPTY_CUE_POINTS: number[] = [];
 
 interface HistoryEntry {
 	bass: number;
@@ -55,7 +48,7 @@ function createPathForLayer(
 	const len = history.length;
 
 	for (let i = 0; i < len; i++) {
-		const val = history[i][layerKey as "bass" | "mid" | "high"];
+		const val = history[i][layerKey];
 		if (val < 0.5) continue;
 
 		const x = i * LINE_SPACING;
@@ -71,50 +64,55 @@ export function Waveform({
 	height,
 	isActive = false,
 	resetKey = 0,
-	gridMarkers = [],
-	cuePoints = [],
+	gridMarkers = EMPTY_GRID_MARKERS,
+	cuePoints = EMPTY_CUE_POINTS,
 }: WaveformProps) {
+	const { theme } = useUnistyles();
 	const lineCount = useMemo(() => Math.floor(width / LINE_SPACING), [width]);
 
-	// Waveform history
 	const history = useSharedValue<HistoryEntry[]>(
 		Array.from({ length: lineCount }, () => ({ bass: 0, mid: 0, high: 0 })),
 	);
 	const peak = useSharedValue(MIN_PEAK);
+	const signal = useSharedValue<number[]>(samples);
 	const isActiveShared = useSharedValue(isActive);
 
-	// Sync isActive
 	useEffect(() => {
 		isActiveShared.value = isActive;
 	}, [isActive, isActiveShared]);
 
+	useEffect(() => {
+		signal.value = samples;
+	}, [samples, signal]);
+
 	// Reset on key change
 	// biome-ignore lint/correctness/useExhaustiveDependencies: resetKey triggers intentional reset
 	useEffect(() => {
-		history.value = Array.from({ length: lineCount }, () => ({ bass: 0, mid: 0, high: 0 }));
+		history.value = Array.from({ length: lineCount }, () => ({
+			bass: 0,
+			mid: 0,
+			high: 0,
+		}));
 		peak.value = MIN_PEAK;
 	}, [resetKey, lineCount]);
 
 	const centerY = height / 2;
 	const maxBarHeight = height * 0.45;
 
-	// Main processing
 	useDerivedValue(() => {
 		"worklet";
 		if (!isActiveShared.value) return;
 
-		const data = samples.value;
+		const data = signal.value;
 		const sampleLen = data.length;
 		if (sampleLen === 0) return;
 
-		// Find peak for auto-gain
 		let framePeak = 0;
 		for (let i = 0; i < sampleLen; i++) {
 			const absVal = Math.abs(data[i]);
 			if (absVal > framePeak) framePeak = absVal;
 		}
 
-		// Update peak tracker
 		peak.value =
 			framePeak > peak.value
 				? framePeak
@@ -122,7 +120,6 @@ export function Waveform({
 
 		const gain = 1 / Math.max(peak.value, MIN_PEAK);
 
-		// Calculate band energies for visualization
 		let sumAbs = 0;
 		let sumDiff = 0;
 		for (let i = 0; i < sampleLen; i++) {
@@ -141,20 +138,22 @@ export function Waveform({
 		const midH = rawMid * maxBarHeight * 0.75;
 		const bassH = rawBass * maxBarHeight * 1.0;
 
-		// Update waveform history
 		const currentLength = history.value.length;
 		const hist = history.value.slice();
 		hist.shift();
 		hist.push({ bass: bassH, mid: midH, high: highH });
 
 		if (hist.length !== currentLength) {
-			history.value = Array.from({ length: currentLength }, () => ({ bass: 0, mid: 0, high: 0 }));
-		} else {
-			history.value = hist;
+			history.value = Array.from({ length: currentLength }, () => ({
+				bass: 0,
+				mid: 0,
+				high: 0,
+			}));
+			return;
 		}
+		history.value = hist;
 	}, [maxBarHeight, lineCount]);
 
-	// Create paths
 	const bassPath = useDerivedValue(
 		() => createPathForLayer(history.value, "bass", centerY),
 		[centerY],
@@ -170,6 +169,7 @@ export function Waveform({
 
 	const gradientStart = vec(0, 0);
 	const gradientEnd = vec(0, height);
+	const waveformColors = theme.colors.visualizer.audio;
 
 	const staticGridPath = useMemo(() => {
 		const p = Skia.Path.Make();
@@ -193,21 +193,19 @@ export function Waveform({
 	}, [cuePoints, height]);
 
 	return (
-		<View style={[styles.container, { width, height }]}>
-			<Canvas style={{ width, height }}>
-				<Paint color="black" />
+		<View style={styles.container(width, height)}>
+			<Canvas style={styles.canvas(width, height)}>
+				<Paint color={theme.colors.surface.audio} />
 
-				{/* Legacy Grid */}
 				<Group>
 					<Path
 						path={staticGridPath}
 						style="stroke"
 						strokeWidth={1}
-						color="rgba(255, 255, 255, 0.3)"
+						color={theme.colors.visualizer.grid}
 					/>
 				</Group>
 
-				{/* Bass Layer */}
 				<Path
 					path={bassPath}
 					style="stroke"
@@ -217,12 +215,16 @@ export function Waveform({
 					<LinearGradient
 						start={gradientStart}
 						end={gradientEnd}
-						colors={["transparent", BASS_COLOR, BASS_COLOR, "transparent"]}
+						colors={[
+							"transparent",
+							waveformColors.low,
+							waveformColors.low,
+							"transparent",
+						]}
 						positions={[0, 0.45, 0.55, 1]}
 					/>
 				</Path>
 
-				{/* Mid Layer */}
 				<Path
 					path={midPath}
 					style="stroke"
@@ -232,12 +234,16 @@ export function Waveform({
 					<LinearGradient
 						start={gradientStart}
 						end={gradientEnd}
-						colors={["transparent", MID_COLOR, MID_COLOR, "transparent"]}
+						colors={[
+							"transparent",
+							waveformColors.mid,
+							waveformColors.mid,
+							"transparent",
+						]}
 						positions={[0, 0.45, 0.55, 1]}
 					/>
 				</Path>
 
-				{/* High Layer */}
 				<Path
 					path={highPath}
 					style="stroke"
@@ -247,12 +253,16 @@ export function Waveform({
 					<LinearGradient
 						start={gradientStart}
 						end={gradientEnd}
-						colors={["transparent", HIGH_COLOR, HIGH_COLOR, "transparent"]}
+						colors={[
+							"transparent",
+							waveformColors.peak,
+							waveformColors.peak,
+							"transparent",
+						]}
 						positions={[0.3, 0.48, 0.52, 0.7]}
 					/>
 				</Path>
 
-				{/* Glow Layer */}
 				<Group
 					layer={
 						<Paint>
@@ -263,22 +273,31 @@ export function Waveform({
 				>
 					<Path
 						path={highPath}
-						color={HIGH_COLOR}
+						color={waveformColors.peak}
 						style="stroke"
 						strokeWidth={LINE_WIDTH * 3}
 					/>
 				</Group>
 
-				{/* Cue Markers */}
-				<Path path={cuePath} color="red" style="fill" />
+				<Path
+					path={cuePath}
+					color={theme.colors.feedback.danger}
+					style="fill"
+				/>
 			</Canvas>
 		</View>
 	);
 }
 
-const styles = StyleSheet.create(() => ({
-	container: {
-		backgroundColor: "black",
+const styles = StyleSheet.create((theme) => ({
+	container: (width: number, height: number) => ({
+		width,
+		height,
+		backgroundColor: theme.colors.surface.audio,
 		position: "relative",
-	},
+	}),
+	canvas: (width: number, height: number) => ({
+		width,
+		height,
+	}),
 }));

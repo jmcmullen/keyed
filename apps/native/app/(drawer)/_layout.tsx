@@ -2,10 +2,9 @@ import { Ionicons } from "@expo/vector-icons";
 import { Link } from "expo-router";
 import { Drawer } from "expo-router/drawer";
 import { useUnistyles } from "react-native-unistyles";
+import { HeaderButton } from "@/components/header-button";
 
-import { HeaderButton } from "../../components/header-button";
-
-const DrawerLayout = () => {
+export default function DrawerLayout() {
 	const { theme } = useUnistyles();
 
 	return (
@@ -36,14 +35,22 @@ const DrawerLayout = () => {
 						<Ionicons name="home-outline" size={size} color={color} />
 					),
 					headerRight: () => (
-						<Link href="/modal" asChild>
+						<Link href="../history" asChild>
 							<HeaderButton />
 						</Link>
 					),
 				}}
 			/>
+			<Drawer.Screen
+				name="history"
+				options={{
+					headerTitle: "History",
+					drawerLabel: "History",
+					drawerIcon: ({ size, color }) => (
+						<Ionicons name="time-outline" size={size} color={color} />
+					),
+				}}
+			/>
 		</Drawer>
 	);
-};
-
-export default DrawerLayout;
+}

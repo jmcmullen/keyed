@@ -1,17 +1,17 @@
 import { DbProvider } from "@keyed/db";
 import { Stack } from "expo-router";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { useUnistyles } from "react-native-unistyles";
+import { StyleSheet, useUnistyles } from "react-native-unistyles";
 
 export const unstable_settings = {
 	initialRouteName: "(drawer)",
-};
+} as const;
 
 export default function RootLayout() {
 	const { theme } = useUnistyles();
 
 	return (
-		<GestureHandlerRootView style={{ flex: 1 }}>
+		<GestureHandlerRootView style={styles.root}>
 			<DbProvider>
 				<Stack
 					screenOptions={{
@@ -34,3 +34,10 @@ export default function RootLayout() {
 		</GestureHandlerRootView>
 	);
 }
+
+const styles = StyleSheet.create((theme) => ({
+	root: {
+		flex: 1,
+		backgroundColor: theme.colors.background,
+	},
+}));

@@ -1,36 +1,41 @@
 import FontAwesome from "@expo/vector-icons/FontAwesome";
-import { forwardRef } from "react";
+import { type ElementRef, forwardRef } from "react";
 import { Pressable } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 
+interface HeaderButtonProps {
+	onPress?: () => void;
+}
+
 export const HeaderButton = forwardRef<
-	typeof Pressable,
-	{ onPress?: () => void }
->(({ onPress }, _ref) => {
+	ElementRef<typeof Pressable>,
+	HeaderButtonProps
+>(({ onPress }, ref) => {
 	return (
-		<Pressable onPress={onPress} style={styles.button}>
+		<Pressable ref={ref} onPress={onPress} style={styles.button}>
 			{({ pressed }) => (
 				<FontAwesome
-					name="info-circle"
+					name="history"
 					size={20}
-					color={styles.icon.color}
-					style={{
-						opacity: pressed ? 0.7 : 1,
-					}}
+					style={[styles.icon, pressed && styles.iconPressed]}
 				/>
 			)}
 		</Pressable>
 	);
 });
+HeaderButton.displayName = "HeaderButton";
 
 const styles = StyleSheet.create((theme) => ({
 	button: {
 		padding: theme.spacing.sm,
 		marginRight: theme.spacing.sm,
 		borderRadius: theme.borderRadius.lg,
-		backgroundColor: `${theme.colors.secondary}80`, // 50% opacity
+		backgroundColor: `${theme.colors.secondary}80`,
 	},
 	icon: {
 		color: theme.colors.secondaryForeground,
+	},
+	iconPressed: {
+		opacity: 0.7,
 	},
 }));

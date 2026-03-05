@@ -23,14 +23,7 @@ interface DbContextValue {
 const DbContext = createContext<DbContextValue | null>(null);
 
 export function DbProvider({ children }: { children: React.ReactNode }) {
-	const { success, error } = useMigrations(db, migrations);
-	const [isReady, setIsReady] = useState(false);
-
-	useEffect(() => {
-		if (success) {
-			setIsReady(true);
-		}
-	}, [success]);
+	const { success: isReady, error } = useMigrations(db, migrations);
 
 	if (error) {
 		return (
@@ -54,14 +47,14 @@ export function DbProvider({ children }: { children: React.ReactNode }) {
 }
 
 function DbProviderInner({ children }: { children: React.ReactNode }) {
-	const [data, setData] = useState<Detection[]>([]);
+	const [detectionsData, setDetectionsData] = useState<Detection[]>([]);
 
-	const refetch = useCallback(async () => {
+	const refetch = useCallback(async (): Promise<void> => {
 		const result = await db
 			.select()
 			.from(detections)
 			.orderBy(desc(detections.createdAt));
-		setData(result);
+		setDetectionsData(result);
 	}, []);
 
 	useEffect(() => {
@@ -69,7 +62,7 @@ function DbProviderInner({ children }: { children: React.ReactNode }) {
 	}, [refetch]);
 
 	const addDetection = useCallback(
-		async (newDetection: NewDetection) => {
+		async (newDetection: NewDetection): Promise<void> => {
 			await db.insert(detections).values({
 				...newDetection,
 				id: randomUUID(),
@@ -80,14 +73,14 @@ function DbProviderInner({ children }: { children: React.ReactNode }) {
 	);
 
 	const deleteDetection = useCallback(
-		async (id: string) => {
+		async (id: string): Promise<void> => {
 			await db.delete(detections).where(eq(detections.id, id));
 			await refetch();
 		},
 		[refetch],
 	);
 
-	const clearHistory = useCallback(async () => {
+	const clearHistory = useCallback(async (): Promise<void> => {
 		await db.delete(detections);
 		await refetch();
 	}, [refetch]);
@@ -95,7 +88,7 @@ function DbProviderInner({ children }: { children: React.ReactNode }) {
 	return (
 		<DbContext.Provider
 			value={{
-				detections: data,
+				detections: detectionsData,
 				addDetection,
 				deleteDetection,
 				clearHistory,
@@ -106,7 +99,7 @@ function DbProviderInner({ children }: { children: React.ReactNode }) {
 	);
 }
 
-export function useDb() {
+export function useDb(): DbContextValue {
 	const context = useContext(DbContext);
 	if (!context) {
 		throw new Error("useDb must be used within a DbProvider");

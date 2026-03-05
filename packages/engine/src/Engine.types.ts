@@ -16,6 +16,8 @@ export interface KeyResult {
 	notation: string;
 	/** Confidence score (0-1) */
 	confidence: number;
+	/** Timestamp in seconds since recording started */
+	timestamp?: number;
 }
 
 export interface ProcessResult {
@@ -69,9 +71,9 @@ export interface WaveformData {
 }
 
 export type EngineModuleEvents = {
-	/** Fired every frame with current state (50 FPS) */
+	/** Fired with latest beat/downbeat state (bridge-throttled, ~20 Hz) */
 	onState: (event: State) => void;
-	/** Fired with waveform data for visualization (throttled) */
+	/** Fired with waveform data for visualization (bridge-throttled, ~12 Hz) */
 	onWaveform: (event: WaveformData) => void;
 	/** Fired when key detection updates (~every 10 seconds) */
 	onKey: (event: KeyResult) => void;

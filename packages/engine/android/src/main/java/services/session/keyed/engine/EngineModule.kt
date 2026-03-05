@@ -10,7 +10,7 @@ import androidx.core.content.ContextCompat
 import expo.modules.kotlin.Promise
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
-import expo.modules.interfaces.permissions.Permissions
+import expo.modules.interfaces.permissions.PermissionsStatus
 import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.atomic.AtomicBoolean
@@ -27,6 +27,8 @@ class EngineModule : Module() {
 		private const val SAMPLE_RATE = 44100           // Native sample rate
 		private const val BPM_SAMPLE_RATE = 22050       // BPM pipeline
 		private const val KEY_SAMPLE_RATE = 44100       // Key detection
+		private const val STATE_EMIT_INTERVAL_NS = 50_000_000L      // 20Hz
+		private const val WAVEFORM_EMIT_INTERVAL_NS = 83_333_333L   // 12Hz
 
 		init {
 			System.loadLibrary("engine")
@@ -65,6 +67,8 @@ class EngineModule : Module() {
 	@Volatile private var waveformWriteIndex = 0
 	@Volatile private var waveformSamplesAccumulated = 0
 	@Volatile private var recordingStartTimeNs = 0L
+	@Volatile private var lastStateEmitNs = 0L
+	@Volatile private var lastWaveformEmitNs = 0L
 
 	// Key detection state
 	@Volatile private var lastKeyNotation: String = ""
@@ -106,23 +110,9 @@ class EngineModule : Module() {
 				return@Function false
 			}
 
-			// Copy model from assets to cache directory
-			val modelFile = File(context.cacheDir, "beatnet.onnx")
-			if (!modelFile.exists()) {
-				try {
-					context.assets.open("beatnet.onnx").use { input ->
-						FileOutputStream(modelFile).use { output ->
-							input.copyTo(output)
-						}
-					}
-					debugLog("Copied BeatNet to: ${modelFile.absolutePath}")
-				} catch (e: Exception) {
-					Log.e(TAG, "Failed to copy BeatNet from assets: ${e.message}")
-					return@Function false
-				}
-			}
+			val modelPath = copyAssetToCache(context, "beatnet.onnx") ?: return@Function false
 
-			val loaded = nativeLoadModel(modelFile.absolutePath)
+			val loaded = nativeLoadModel(modelPath)
 			if (loaded) {
 				debugLog("BeatNet loaded, running warm-up inference...")
 				val warmedUp = nativeWarmUp()
@@ -145,23 +135,9 @@ class EngineModule : Module() {
 				return@Function false
 			}
 
-			// Copy model from assets to cache directory
-			val modelFile = File(context.cacheDir, "keynet.onnx")
-			if (!modelFile.exists()) {
-				try {
-					context.assets.open("keynet.onnx").use { input ->
-						FileOutputStream(modelFile).use { output ->
-							input.copyTo(output)
-						}
-					}
-					debugLog("Copied MusicalKeyCNN to: ${modelFile.absolutePath}")
-				} catch (e: Exception) {
-					Log.e(TAG, "Failed to copy MusicalKeyCNN from assets: ${e.message}")
-					return@Function false
-				}
-			}
+			val modelPath = copyAssetToCache(context, "keynet.onnx") ?: return@Function false
 
-			val loaded = nativeLoadKeyModel(modelFile.absolutePath)
+			val loaded = nativeLoadKeyModel(modelPath)
 			if (loaded) {
 				debugLog("MusicalKeyCNN loaded, running warm-up inference...")
 				val warmedUp = nativeWarmUpKey()
@@ -204,11 +180,26 @@ class EngineModule : Module() {
 		// =====================================================================
 
 		AsyncFunction("requestPermission") { promise: Promise ->
-			Permissions.askForPermissionsWithPermissionsManager(
-				appContext.permissions,
-				promise,
-				Manifest.permission.RECORD_AUDIO
-			)
+			val manager = appContext.permissions ?: run {
+				promise.resolve(false)
+				return@AsyncFunction
+			}
+			if (manager.hasGrantedPermissions(Manifest.permission.RECORD_AUDIO)) {
+				promise.resolve(true)
+				return@AsyncFunction
+			}
+			try {
+				manager.askForPermissions(
+					{ result ->
+						val response = result[Manifest.permission.RECORD_AUDIO]
+						promise.resolve(response?.status == PermissionsStatus.GRANTED)
+					},
+					Manifest.permission.RECORD_AUDIO
+				)
+			} catch (e: Exception) {
+				Log.e(TAG, "Failed to request microphone permission: ${e.message}")
+				promise.resolve(false)
+			}
 		}
 
 		Function("getPermissionStatus") {
@@ -225,6 +216,11 @@ class EngineModule : Module() {
 		// =====================================================================
 
 		AsyncFunction("startRecording") { enableWaveform: Boolean, promise: Promise ->
+			if (isRecordingAudio.get()) {
+				promise.resolve(true)
+				return@AsyncFunction
+			}
+
 			val context = appContext.reactContext
 			if (context == null) {
 				Log.e(TAG, "Context not available")
@@ -232,7 +228,10 @@ class EngineModule : Module() {
 				return@AsyncFunction
 			}
 
-			val permission = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
+			val permission = ContextCompat.checkSelfPermission(
+				context,
+				Manifest.permission.RECORD_AUDIO
+			)
 			if (permission != PackageManager.PERMISSION_GRANTED) {
 				Log.e(TAG, "Microphone permission not granted")
 				promise.resolve(false)
@@ -285,6 +284,8 @@ class EngineModule : Module() {
 		waveformWriteIndex = 0
 		waveformSamplesAccumulated = 0
 		recordingStartTimeNs = System.nanoTime()
+		lastStateEmitNs = 0L
+		lastWaveformEmitNs = 0L
 
 		isRecordingAudio.set(true)
 		audioRecord?.startRecording()
@@ -345,26 +346,33 @@ class EngineModule : Module() {
 		audioRecord?.release()
 		audioRecord = null
 		recordingStartTimeNs = 0L
+		lastStateEmitNs = 0L
+		lastWaveformEmitNs = 0L
 
 		debugLog("Audio recording stopped")
 	}
 
 	private fun processAudioSamples(samples: FloatArray, enableWaveform: Boolean) {
 		val results = nativeProcessAudio(samples)
+		val nowNs = System.nanoTime()
 		val timestampSeconds = if (recordingStartTimeNs > 0L) {
-			(System.nanoTime() - recordingStartTimeNs).toDouble() / 1_000_000_000.0
+			(nowNs - recordingStartTimeNs).toDouble() / 1_000_000_000.0
 		} else {
 			0.0
 		}
 
-		// Emit BPM state events
-		if (results != null) {
-			for (result in results) {
-				sendEvent("onState", mapOf(
-					"beatActivation" to result.beatActivation.toDouble(),
-					"downbeatActivation" to result.downbeatActivation.toDouble(),
-					"timestamp" to timestampSeconds
-				))
+		if (results != null && nowNs - lastStateEmitNs >= STATE_EMIT_INTERVAL_NS) {
+			val result = results.lastOrNull()
+			if (result != null) {
+				lastStateEmitNs = nowNs
+				sendEvent(
+					"onState",
+					mapOf(
+						"beatActivation" to result.beatActivation.toDouble(),
+						"downbeatActivation" to result.downbeatActivation.toDouble(),
+						"timestamp" to timestampSeconds
+					)
+				)
 			}
 		}
 
@@ -387,7 +395,6 @@ class EngineModule : Module() {
 			}
 		}
 
-		// Waveform processing
 		if (enableWaveform) {
 			for (sample in samples) {
 				waveformInputBuffer[waveformWriteIndex] = sample
@@ -395,10 +402,13 @@ class EngineModule : Module() {
 				waveformSamplesAccumulated++
 			}
 
-			// Emit waveform at similar rate as before (accounting for 2x sample rate)
 			val waveformThreshold = waveformInputSize * 2
 			if (waveformSamplesAccumulated >= waveformThreshold) {
 				waveformSamplesAccumulated = 0
+				if (nowNs - lastWaveformEmitNs < WAVEFORM_EMIT_INTERVAL_NS) {
+					return
+				}
+				lastWaveformEmitNs = nowNs
 
 				var peak = 0f
 				var sumSquares = 0f
@@ -425,15 +435,46 @@ class EngineModule : Module() {
 				}
 				val frequencyBands = computeFrequencyBands(orderedSamples)
 
-				sendEvent("onWaveform", mapOf(
-					"samples" to downsampledPoints.toList(),
-					"peak" to peak.toDouble(),
-					"rms" to rms.toDouble(),
-					"low" to frequencyBands.first,
-					"mid" to frequencyBands.second,
-					"high" to frequencyBands.third
-				))
+				sendEvent(
+					"onWaveform",
+					mapOf(
+						"samples" to downsampledPoints.toList(),
+						"peak" to peak.toDouble(),
+						"rms" to rms.toDouble(),
+						"low" to frequencyBands.first,
+						"mid" to frequencyBands.second,
+						"high" to frequencyBands.third
+					)
+				)
 			}
+		}
+	}
+
+	private fun copyAssetToCache(context: android.content.Context, name: String): String? {
+		val target = File(context.cacheDir, name)
+		val temp = File(context.cacheDir, "$name.tmp")
+		try {
+			context.assets.open(name).use { input ->
+				FileOutputStream(temp).use { output ->
+					input.copyTo(output)
+				}
+			}
+			if (target.exists() && !target.delete()) {
+				Log.e(TAG, "Failed to delete cached model: ${target.absolutePath}")
+				temp.delete()
+				return null
+			}
+			if (!temp.renameTo(target)) {
+				Log.e(TAG, "Failed to update model cache: ${target.absolutePath}")
+				temp.delete()
+				return null
+			}
+			debugLog("Copied model to: ${target.absolutePath}")
+			return target.absolutePath
+		} catch (e: Exception) {
+			Log.e(TAG, "Failed to copy model from assets ($name): ${e.message}")
+			temp.delete()
+			return null
 		}
 	}
 

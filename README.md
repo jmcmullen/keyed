@@ -23,6 +23,12 @@ Keyed processes all audio locally on your device. No audio data, song informatio
 - [TanStack Query](https://tanstack.com/query) for state management
 - Turborepo monorepo structure
 
+## Analysis Documentation
+
+- [`docs/ANALYSIS.md`](docs/ANALYSIS.md) - Current end-to-end native analysis architecture (BPM + key)
+- [`docs/BEATNET.md`](docs/BEATNET.md) - BPM pipeline internals and model notes
+- [`docs/KEY_DETECTION.md`](docs/KEY_DETECTION.md) - Key-analysis pipeline internals and API
+
 ## Development
 
 ### Prerequisites

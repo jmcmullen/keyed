@@ -14,6 +14,10 @@ public class EngineModule: Module {
 	private var waveformWriteIndex = 0
 	private var waveformSamplesAccumulated = 0
 	private var waveformEmitCount = 0
+	private let stateEmitInterval: TimeInterval = 1.0 / 20.0
+	private let waveformEmitInterval: TimeInterval = 1.0 / 12.0
+	private var lastStateEmitTime: TimeInterval = 0
+	private var lastWaveformEmitTime: TimeInterval = 0
 
 	// FFT setup for frequency analysis
 	private let fftSize = 256
@@ -170,6 +174,11 @@ public class EngineModule: Module {
 		}
 
 		AsyncFunction("startRecording") { (enableWaveform: Bool, promise: Promise) in
+			if self.isRecordingAudio {
+				promise.resolve(true)
+				return
+			}
+
 			let permission = AVAudioSession.sharedInstance().recordPermission
 			if permission != .granted {
 				self.debugLog("Microphone permission not granted")
@@ -204,6 +213,10 @@ public class EngineModule: Module {
 	}
 
 	private func startAudioEngine() throws {
+		if isRecordingAudio {
+			return
+		}
+
 		audioEngine = AVAudioEngine()
 		guard let audioEngine = audioEngine else { return }
 
@@ -250,6 +263,8 @@ public class EngineModule: Module {
 		waveformEmitCount = 0
 		processCallCount = 0
 		recordingStartTime = Date().timeIntervalSince1970
+		lastStateEmitTime = 0
+		lastWaveformEmitTime = 0
 		debugLog("Audio engine started at \(inputFormat.sampleRate)Hz -> 44100Hz, buffer: \(bufferSize), waveform: \(enableWaveformEvents)")
 	}
 
@@ -258,6 +273,8 @@ public class EngineModule: Module {
 		audioEngine?.stop()
 		audioEngine = nil
 		isRecordingAudio = false
+		lastStateEmitTime = 0
+		lastWaveformEmitTime = 0
 
 		try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
 		debugLog("Audio engine stopped")
@@ -355,18 +372,18 @@ public class EngineModule: Module {
 		let nsSamples = samples.map { NSNumber(value: $0) }
 		let results = bridge.processAudio(nsSamples)
 
-		let timestamp = Date().timeIntervalSince1970 - recordingStartTime
+		let now = Date().timeIntervalSince1970
+		let timestamp = now - recordingStartTime
 
 		// Emit BPM state events (if available)
-		if let results = results {
-			for result in results {
+			if let result = results?.last, now - lastStateEmitTime >= stateEmitInterval {
+				lastStateEmitTime = now
 				sendEvent("onState", [
 					"beatActivation": Double(result.beatActivation),
 					"downbeatActivation": Double(result.downbeatActivation),
 					"timestamp": timestamp
 				])
 			}
-		}
 
 		// Check for key detection updates (emit on key change OR significant confidence change)
 		let keyResult = bridge.getKey()
@@ -397,6 +414,10 @@ public class EngineModule: Module {
 			let waveformThreshold = waveformInputSize * 2  // Account for higher sample rate
 			if waveformSamplesAccumulated >= waveformThreshold {
 				waveformSamplesAccumulated = 0
+				if now - lastWaveformEmitTime < waveformEmitInterval {
+					return
+				}
+				lastWaveformEmitTime = now
 
 				var peak: Float = 0
 				var sumSquares: Float = 0

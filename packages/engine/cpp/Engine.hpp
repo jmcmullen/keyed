@@ -154,6 +154,7 @@ public:
 	static constexpr float KEY_FPS = 5.0f;
 	static constexpr int KEY_MIN_FRAMES = 100;         // Minimum frames for first inference (~20 sec)
 	static constexpr int KEY_INFERENCE_INTERVAL = 25;  // Run inference every N new frames (~5 sec)
+	static constexpr int KEY_MAX_FRAMES = 1200;        // Keep last 4 minutes at 5 FPS
 
 private:
 	// Run key inference on accumulated CQT frames
@@ -168,8 +169,9 @@ private:
 	// Key detection
 	std::unique_ptr<StreamingCqtExtractor> cqtExtractor_;
 	std::unique_ptr<KeyModel> keyModel_;
-	std::vector<float> cqtBuffer_;           // CQT frame buffer (grows with recording)
-	size_t cqtFrameCount_ = 0;               // Total frames accumulated
+	std::vector<float> cqtBuffer_;           // Fixed-capacity CQT window [KEY_MAX_FRAMES][N_BINS]
+	size_t cqtFrameCount_ = 0;               // Total frames processed since reset
+	size_t cqtWindowFrameCount_ = 0;         // Frames currently available in cqtBuffer_
 	size_t cqtFramesSinceInference_ = 0;     // Frames since last inference
 	KeyResult currentKey_;                    // Latest key detection result
 	int keyInferenceCount_ = 0;              // Number of inferences performed

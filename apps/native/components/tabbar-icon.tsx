@@ -1,8 +1,17 @@
 import FontAwesome from "@expo/vector-icons/FontAwesome";
+import { StyleSheet } from "react-native-unistyles";
 
-export const TabBarIcon = (props: {
+interface TabBarIconProps {
 	name: React.ComponentProps<typeof FontAwesome>["name"];
 	color: string;
-}) => {
-	return <FontAwesome size={24} style={{ marginBottom: -3 }} {...props} />;
+}
+
+export const TabBarIcon = (props: TabBarIconProps) => {
+	return <FontAwesome size={24} style={styles.icon} {...props} />;
 };
+
+const styles = StyleSheet.create((_theme) => ({
+	icon: {
+		marginBottom: -3,
+	},
+}));

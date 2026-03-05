@@ -1,78 +1,96 @@
-# Audio Analysis Approach
+# Audio Analysis Architecture
 
 ## Overview
 
-Keyed uses **essentia.js** (WASM-compiled C++ library) for offline audio analysis, paired with **@siteed/expo-audio-studio** for microphone capture in React Native.
+Keyed now uses a **native C++ ONNX pipeline** in `packages/engine` for both BPM and key detection.
 
-## Libraries
+- Audio capture and processing run natively (iOS/Android), not in JS/WASM
+- Input stream is 44.1kHz mono PCM
+- BPM and key are computed in parallel from the same live stream
 
-### Audio Capture: @siteed/expo-audio-studio
-- Expo-compatible microphone capture
-- Real-time PCM streaming
-- Waveform data for visualisation
+This architecture replaced the previous Essentia/WASM approach (see merged PR #1 and #3 for migration context).
 
-### Audio Analysis: essentia.js
-- WASM build runs in JS thread (no native module required)
-- AGPLv3 license (free, open source)
-- Academic backing from Music Technology Group, Barcelona
+## Runtime Components
 
-## Analysis Algorithms
+- Native module: `@keyed/engine` (Expo module wrapper over C++ core)
+- BPM model: `packages/engine/models/beatnet.onnx`
+- Key model: `packages/engine/models/keynet.onnx`
+- Execution: ONNX Runtime with platform acceleration (CoreML/NNAPI where available)
 
-### BPM Detection: PercivalBpmEstimator
-- Input: mono audio signal (Float32Array)
-- Output: BPM estimate
-- Parameters: `minBPM=50`, `maxBPM=210`, `sampleRate=44100`
-- No native confidence output; derive from signal energy or beat consistency
+## Analysis Pipelines
 
-### Key Detection: KeyExtractor
-- Input: mono audio signal (Float32Array)
-- Output: key (e.g. "A"), scale ("major"/"minor"), strength (0-1)
-- Parameters: `profileType='edma'` (tuned for electronic/dance music), `sampleRate=44100`
-- Strength value (0-1) maps directly to confidence percentage
+### BPM Analysis (BeatNet + Autocorrelation)
 
-## Real-time Processing Strategy
+1. Native audio (44.1kHz) is resampled to 22.05kHz for BPM.
+2. Streaming mel features are extracted (272-dim input).
+3. `beatnet.onnx` outputs beat/downbeat activations.
+4. Autocorrelation over activations produces a stable BPM estimate.
 
-1. **Accumulate audio** in a circular buffer as mic streams PCM data
-2. **Analyze every N seconds** (e.g. every 3-5 seconds) using the accumulated buffer
-3. **Update UI** with latest BPM/key estimates and confidence values
-4. **Continue accumulating** until user stops or silence detected
+Operational notes:
+- Frame rate: `BPM_FPS = 50`
+- BPM becomes reliable after roughly `getFrameCount() >= 100` (~2 seconds)
+- Current value is read via `getBpm()`
 
-Minimum buffer for reliable analysis: ~5 seconds of audio at 44.1kHz.
+Deep dive: `docs/BEATNET.md`
 
-## Confidence Thresholds
+### Key Analysis (MusicalKeyCNN + CQT)
 
-Based on essentia's `key_strength` output (0-1 range):
+1. The same native audio stream stays at 44.1kHz for key detection.
+2. Streaming CQT features are extracted at `KEY_FPS = 5`.
+3. `keynet.onnx` runs 24-class classification (12 minor + 12 major).
+4. Engine outputs:
+   - `camelot` (for DJ mixing, e.g. `8A`)
+   - `notation` (e.g. `Am`)
+   - `confidence` (softmax probability, 0-1)
 
-| Level | Range | UI Colour |
-|-------|-------|-----------|
-| High | > 0.6 | Green |
-| Medium | 0.3 - 0.6 | Amber |
-| Low | < 0.3 | Red |
+Operational notes:
+- Minimum frames before first key inference: `KEY_MIN_FRAMES = 100` (~20 seconds)
+- After first result, inference runs every `KEY_INFERENCE_INTERVAL = 25` frames (~5 seconds)
+- Inference uses a rolling 4-minute CQT window (1200 frames at 5 FPS) to keep memory bounded.
+- Native layer emits `onKey` when notation changes or confidence changes meaningfully
 
-Note: These thresholds are tuned for the `edma` profile with electronic music. Adjust based on real-world testing.
+Deep dive: `docs/KEY_DETECTION.md`
 
-## Code Example
+## Module Lifecycle
+
+Typical startup sequence:
+
+1. `loadModel()` for BPM
+2. `loadKeyModel()` for key
+3. `startRecording(true)` for native capture + processing
+4. Subscribe to:
+   - `onState` for beat/downbeat frame updates
+   - `onKey` for key updates
+   - `onWaveform` for visualization
+
+Bridge notes:
+- Native event delivery is rate-limited (`onState` ~20Hz, `onWaveform` ~12Hz) for power efficiency.
+- Detector internals continue running at full native rates (`BPM_FPS = 50`, `KEY_FPS = 5`), so convergence behavior is unchanged.
+
+## TypeScript Usage
 
 ```ts
-import Essentia from "essentia.js"
-import { EssentiaWASM } from "essentia.js/dist/essentia-wasm.module"
+import EngineModule from "@keyed/engine";
 
-const essentia = new Essentia(EssentiaWASM)
+const bpmReady = EngineModule.loadModel();
+const keyReady = EngineModule.loadKeyModel();
 
-// BPM detection
-const bpmResult = essentia.PercivalBpmEstimator(audioSignal, 1024, 2048, 128, 128, 210, 50, 44100)
-const bpm = bpmResult.bpm
+if (bpmReady && keyReady) {
+	EngineModule.addListener("onState", (state) => {
+		const bpm = EngineModule.getBpm();
+		const frames = EngineModule.getFrameCount();
+	});
 
-// Key detection (using KeyExtractor for full signal)
-const keyResult = essentia.KeyExtractor(audioSignal, true, 4096, 4096, 12, 3500, 60, 25, 0.2, "edma", 44100, 0.0001, 440, "cosine", "hann")
-const key = keyResult.key        // e.g. "A"
-const scale = keyResult.scale    // "major" or "minor"
-const strength = keyResult.strength // 0-1 confidence
+	EngineModule.addListener("onKey", (key) => {
+		// key.camelot, key.notation, key.confidence
+	});
+
+	await EngineModule.startRecording(true);
+}
 ```
 
-## Accuracy Notes
+## Confidence and Readiness
 
-- Essentia uses algorithms similar to Mixxx (open-source DJ software)
-- `edma` profile specifically tuned for electronic/dance music
-- Expected accuracy: ~80% for key detection on electronic music
-- BPM detection generally reliable; watch for half/double time on slower tracks
+- BPM confidence is implicit in data volume and activation stability; gate UI using `getFrameCount()`.
+- Key confidence is explicit (`confidence` in `KeyResult`) but should still be gated by `getKeyFrameCount()` during early accumulation.
+- Call `reset()` to clear both pipelines and restart convergence windows.

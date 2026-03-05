@@ -48,3 +48,4 @@ bun run test:native
 ## Notes
 - Key confidence improves with longer listening windows.
 - `getKeyFrameCount()` can be used in the UI to gate confidence messaging.
+- Runtime retains a rolling 4-minute CQT context (1200 frames at 5 FPS) to bound memory while preserving stable key inference.

@@ -5,6 +5,7 @@
 #include "Engine.hpp"
 #include <cmath>
 #include <algorithm>
+#include <cstring>
 
 namespace engine {
 
@@ -15,9 +16,8 @@ Engine::Engine()
 	, cqtExtractor_(std::make_unique<StreamingCqtExtractor>())
 	, keyModel_(std::make_unique<KeyModel>())
 {
-	// Pre-allocate CQT buffer for ~2 minutes of audio (600 frames at 5 FPS)
-	// Buffer grows dynamically if needed
-	cqtBuffer_.reserve(CqtConfig::N_BINS * 600);
+	// Pre-allocate 4-minute rolling CQT buffer (1200 frames at 5 FPS)
+	cqtBuffer_.resize(CqtConfig::N_BINS * KEY_MAX_FRAMES, 0.0f);
 
 	// Pre-allocate resample buffer (generous size for typical audio chunks)
 	resampleBuffer_.resize(44100);
@@ -39,8 +39,8 @@ void Engine::reset() {
 
 	// Reset key detection
 	cqtExtractor_->reset();
-	cqtBuffer_.clear();
 	cqtFrameCount_ = 0;
+	cqtWindowFrameCount_ = 0;
 	cqtFramesSinceInference_ = 0;
 	keyInferenceCount_ = 0;
 	currentKey_ = {"", "", 0.0f, false};
@@ -130,12 +130,12 @@ size_t Engine::getKeyFrameCount() const {
 }
 
 void Engine::runKeyInference() {
-	if (!isKeyReady() || cqtFrameCount_ < KEY_MIN_FRAMES) {
+	if (!isKeyReady() || cqtFrameCount_ < KEY_MIN_FRAMES || cqtWindowFrameCount_ == 0) {
 		return;
 	}
 
 	KeyOutput output;
-	if (keyModel_->inferVariable(cqtBuffer_.data(), static_cast<int>(cqtFrameCount_), output)) {
+	if (keyModel_->inferVariable(cqtBuffer_.data(), static_cast<int>(cqtWindowFrameCount_), output)) {
 		keyInferenceCount_++;
 		cqtFramesSinceInference_ = 0;
 		currentKey_.camelot = output.camelot;
@@ -162,18 +162,19 @@ int Engine::processAudio(const float* samples, int numSamples,
 		int cqtProduced = cqtExtractor_->push(samples, numSamples,
 		                                       cqtFrames.data(), MAX_CQT_FRAMES);
 
-			// Accumulate CQT frames into growing buffer (row-major: [time][freq])
+		// Append CQT frames into a fixed 4-minute rolling window.
 		for (int i = 0; i < cqtProduced; i++) {
-			// Ensure buffer has space for new frame
-			size_t newSize = (cqtFrameCount_ + 1) * CqtConfig::N_BINS;
-			if (cqtBuffer_.size() < newSize) {
-				cqtBuffer_.resize(newSize);
-			}
-
-			// Append frame data for each frequency bin
-			for (int f = 0; f < CqtConfig::N_BINS; f++) {
-				cqtBuffer_[cqtFrameCount_ * CqtConfig::N_BINS + f] =
-					cqtFrames[i * CqtConfig::N_BINS + f];
+			const float* src = &cqtFrames[i * CqtConfig::N_BINS];
+			if (cqtWindowFrameCount_ < KEY_MAX_FRAMES) {
+				float* dst = &cqtBuffer_[cqtWindowFrameCount_ * CqtConfig::N_BINS];
+				std::copy(src, src + CqtConfig::N_BINS, dst);
+				cqtWindowFrameCount_++;
+			} else {
+				const size_t bins = static_cast<size_t>(CqtConfig::N_BINS);
+				const size_t keep = static_cast<size_t>(KEY_MAX_FRAMES - 1) * bins;
+				std::memmove(cqtBuffer_.data(), cqtBuffer_.data() + bins, keep * sizeof(float));
+				float* dst = &cqtBuffer_[keep];
+				std::copy(src, src + CqtConfig::N_BINS, dst);
 			}
 			cqtFrameCount_++;
 			cqtFramesSinceInference_++;
