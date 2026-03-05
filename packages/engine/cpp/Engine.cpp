@@ -227,46 +227,50 @@ int Engine::processAudioForBpm(const float* samples, int numSamples,
 	if (!isReady()) {
 		return 0;
 	}
-
-	// Extract mel features
-	static constexpr int MAX_FRAMES = 64;
-	float features[MAX_FRAMES * FEATURE_DIM];
-	int numFrames = melExtractor_->push(samples, numSamples, features, MAX_FRAMES);
-
-	if (numFrames == 0) {
+	if (numSamples <= 0) {
 		return 0;
 	}
 
+	static constexpr int MAX_FRAMES = 64;
+	static constexpr int MAX_CHUNK_SAMPLES = MelConfig::HOP_LENGTH * 32;
+	float features[MAX_FRAMES * FEATURE_DIM];
 	int resultsProduced = 0;
 	int totalProduced = 0;
 
-	// Process each frame through ONNX
-	for (int i = 0; i < numFrames; i++) {
-		float* frameFeatures = &features[i * FEATURE_DIM];
-
-		// Run ONNX inference
-		ModelOutput modelOutput;
-		if (!beatnetModel_->infer(frameFeatures, modelOutput)) {
+	for (int offset = 0; offset < numSamples; offset += MAX_CHUNK_SAMPLES) {
+		const int chunk = std::min(MAX_CHUNK_SAMPLES, numSamples - offset);
+		const int numFrames = melExtractor_->push(
+			samples + offset, chunk, features, MAX_FRAMES
+		);
+		if (numFrames == 0) {
 			continue;
 		}
 
-		float currBeatAct = modelOutput.beatActivation;
-		float currDownAct = modelOutput.downbeatActivation;
+		for (int i = 0; i < numFrames; i++) {
+			float* frameFeatures = &features[i * FEATURE_DIM];
+			ModelOutput modelOutput;
+			if (!beatnetModel_->infer(frameFeatures, modelOutput)) {
+				continue;
+			}
 
-		// Collect activations for autocorrelation BPM
-		activationBuffer_.push(currBeatAct, currDownAct);
-		totalProduced++;
+			const float currBeatAct = modelOutput.beatActivation;
+			const float currDownAct = modelOutput.downbeatActivation;
+			activationBuffer_.push(currBeatAct, currDownAct);
+			totalProduced++;
 
-		// Fill result if output buffer provided
-		if (outResults && resultsProduced < maxResults) {
-			FrameResult& result = outResults[resultsProduced];
-			result.beatActivation = currBeatAct;
-			result.downbeatActivation = currDownAct;
-			resultsProduced++;
+			if (outResults && resultsProduced < maxResults) {
+				FrameResult& result = outResults[resultsProduced];
+				result.beatActivation = currBeatAct;
+				result.downbeatActivation = currDownAct;
+				resultsProduced++;
+			}
 		}
 	}
 
-	return outResults ? resultsProduced : totalProduced;
+	if (outResults) {
+		return resultsProduced;
+	}
+	return totalProduced;
 }
 
 } // namespace engine

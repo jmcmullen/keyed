@@ -122,6 +122,7 @@ export default function HistoryScreen() {
 					</Swipeable>
 				)}
 			/>
+			{db.error ? <Text style={styles.errTxt}>{db.error}</Text> : null}
 		</View>
 	);
 }
@@ -211,5 +212,11 @@ const styles = StyleSheet.create((theme) => ({
 	},
 	btnDisabled: {
 		opacity: 0.5,
+	},
+	errTxt: {
+		marginTop: theme.spacing.sm,
+		color: theme.colors.feedback.danger,
+		fontSize: theme.fontSize.sm,
+		textAlign: "center",
 	},
 }));

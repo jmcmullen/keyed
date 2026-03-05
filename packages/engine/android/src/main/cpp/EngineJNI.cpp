@@ -10,6 +10,7 @@
 #include <vector>
 #include <string>
 #include <mutex>
+#include <algorithm>
 
 #define LOG_TAG "Engine"
 #ifdef NDEBUG
@@ -205,9 +206,10 @@ Java_services_session_keyed_engine_EngineModule_nativeGetKeyFrameCount(JNIEnv* e
 
 JNIEXPORT jobjectArray JNICALL
 Java_services_session_keyed_engine_EngineModule_nativeProcessAudio(
-	JNIEnv* env, jobject thiz, jfloatArray samples) {
+	JNIEnv* env, jobject thiz, jfloatArray samples, jint count) {
 
 	jsize numSamples = env->GetArrayLength(samples);
+	const int validSamples = std::max(0, std::min(static_cast<int>(numSamples), static_cast<int>(count)));
 	jfloat* sampleData = env->GetFloatArrayElements(samples, nullptr);
 
 	int numResults = 0;
@@ -221,7 +223,7 @@ Java_services_session_keyed_engine_EngineModule_nativeProcessAudio(
 		}
 
 		int maxResults = static_cast<int>(g_resultBuffer.size());
-		numResults = g_engine->processAudio(sampleData, numSamples,
+		numResults = g_engine->processAudio(sampleData, validSamples,
 		                                     g_resultBuffer.data(), maxResults);
 
 		// Copy results while holding lock

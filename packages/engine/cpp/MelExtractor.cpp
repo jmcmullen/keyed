@@ -374,8 +374,9 @@ int StreamingMelExtractor::push(const float* samples, int numSamples,
 
     int framesProduced = 0;
     std::vector<float> frame(winLength);
+    float spill[MelConfig::MODEL_INPUT_DIM] = {0};
 
-    for (int i = 0; i < numSamples && framesProduced < maxFrames; i++) {
+    for (int i = 0; i < numSamples; i++) {
         // Write sample to circular buffer
         impl.buffer[impl.writePos % bufferSize] = samples[i];
         impl.writePos++;
@@ -390,13 +391,15 @@ int StreamingMelExtractor::push(const float* samples, int numSamples,
                 frame[j] = impl.buffer[bufIdx];
             }
 
-            // Process frame to get 272-dim features
-            bool hasFeatures = impl.extractor.processFrame(
-                frame.data(), winLength,
-                features + framesProduced * featureDim
-            );
+            float* out = spill;
+            if (framesProduced < maxFrames) {
+                out = features + framesProduced * featureDim;
+            }
 
-            if (hasFeatures) {
+            // Process frame to keep extractor state in sync with consumed samples.
+            bool hasFeatures = impl.extractor.processFrame(frame.data(), winLength, out);
+
+            if (hasFeatures && framesProduced < maxFrames) {
                 framesProduced++;
             }
 

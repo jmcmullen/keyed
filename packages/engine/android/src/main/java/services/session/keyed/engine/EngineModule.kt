@@ -15,10 +15,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
-import kotlin.math.PI
 import kotlin.math.abs
-import kotlin.math.cos
-import kotlin.math.sin
 import kotlin.math.sqrt
 
 class EngineModule : Module() {
@@ -42,7 +39,7 @@ class EngineModule : Module() {
 	private external fun nativeLoadModel(modelPath: String): Boolean
 	private external fun nativeIsReady(): Boolean
 	private external fun nativeWarmUp(): Boolean
-	private external fun nativeProcessAudio(samples: FloatArray): Array<FrameResult>?
+	private external fun nativeProcessAudio(samples: FloatArray, count: Int): Array<FrameResult>?
 	private external fun nativeProcessAudioForBpm(samples: FloatArray): Array<FrameResult>?
 	private external fun nativeGetBpm(): Float
 	private external fun nativeGetFrameCount(): Long
@@ -60,10 +57,6 @@ class EngineModule : Module() {
 	private val waveformBufferSize = 128
 	private val waveformInputSize = 256
 	private val waveformInputBuffer = FloatArray(waveformInputSize)
-	private val fftSize = 256
-	private val fftWindow = FloatArray(fftSize) { index ->
-		(0.5 * (1.0 - cos((2.0 * PI * index) / (fftSize - 1)))).toFloat()
-	}
 	@Volatile private var waveformWriteIndex = 0
 	@Volatile private var waveformSamplesAccumulated = 0
 	@Volatile private var recordingStartTimeNs = 0L
@@ -176,7 +169,7 @@ class EngineModule : Module() {
 
 		Function("processAudio") { samples: List<Double> ->
 			val floatSamples = FloatArray(samples.size) { samples[it].toFloat() }
-			val results = nativeProcessAudio(floatSamples)
+			val results = nativeProcessAudio(floatSamples, floatSamples.size)
 			results?.map { result ->
 				mapOf(
 					"beatActivation" to result.beatActivation.toDouble(),
@@ -312,7 +305,7 @@ class EngineModule : Module() {
 				}
 
 				if (read > 0 && isRecordingAudio.get()) {
-					processAudioSamples(buffer.copyOf(read), enableWaveform)
+					processAudioSamples(buffer, read, enableWaveform)
 				} else if (read < 0) {
 					break
 				}
@@ -362,8 +355,8 @@ class EngineModule : Module() {
 		debugLog("Audio recording stopped")
 	}
 
-	private fun processAudioSamples(samples: FloatArray, enableWaveform: Boolean) {
-		val results = nativeProcessAudio(samples)
+	private fun processAudioSamples(samples: FloatArray, count: Int, enableWaveform: Boolean) {
+		val results = nativeProcessAudio(samples, count)
 		val nowNs = System.nanoTime()
 		val timestampSeconds = if (recordingStartTimeNs > 0L) {
 			(nowNs - recordingStartTimeNs).toDouble() / 1_000_000_000.0
@@ -406,8 +399,8 @@ class EngineModule : Module() {
 		}
 
 		if (enableWaveform) {
-			for (sample in samples) {
-				waveformInputBuffer[waveformWriteIndex] = sample
+			for (idx in 0 until count) {
+				waveformInputBuffer[waveformWriteIndex] = samples[idx]
 				waveformWriteIndex = (waveformWriteIndex + 1) % waveformInputSize
 				waveformSamplesAccumulated++
 			}
@@ -422,6 +415,10 @@ class EngineModule : Module() {
 
 				var peak = 0f
 				var sumSquares = 0f
+				var sumAbs = 0f
+				var sumDiff = 0f
+				var last = 0f
+				var hasLast = false
 				val samplesPerPoint = waveformInputSize / waveformBufferSize
 				val downsampledPoints = DoubleArray(waveformBufferSize)
 
@@ -433,17 +430,23 @@ class EngineModule : Module() {
 						sum += value
 						val absVal = abs(value)
 						if (absVal > peak) peak = absVal
+						sumAbs += absVal
+						if (hasLast) {
+							sumDiff += abs(value - last)
+						}
+						last = value
+						hasLast = true
 						sumSquares += value * value
 					}
 					downsampledPoints[i] = (sum / samplesPerPoint).toDouble()
 				}
 				val rms = sqrt(sumSquares / waveformInputSize)
-
-				val orderedSamples = FloatArray(waveformInputSize) { i ->
-					val readIndex = (waveformWriteIndex + i) % waveformInputSize
-					waveformInputBuffer[readIndex]
-				}
-				val frequencyBands = computeFrequencyBands(orderedSamples)
+				val gain = 1f / maxOf(peak, 0.01f)
+				val avgAbs = (sumAbs / waveformInputSize) * gain
+				val avgDiff = (sumDiff / (waveformInputSize - 1)) * gain
+				val high = (avgDiff * 5f).coerceIn(0f, 1f)
+				val low = ((avgAbs - avgDiff * 0.5f) * 1.5f).coerceIn(0f, 1f)
+				val mid = (avgAbs * 1.2f).coerceIn(0f, 1f)
 
 				sendEvent(
 					"onWaveform",
@@ -451,9 +454,9 @@ class EngineModule : Module() {
 						"samples" to downsampledPoints.toList(),
 						"peak" to peak.toDouble(),
 						"rms" to rms.toDouble(),
-						"low" to frequencyBands.first,
-						"mid" to frequencyBands.second,
-						"high" to frequencyBands.third
+						"low" to low.toDouble(),
+						"mid" to mid.toDouble(),
+						"high" to high.toDouble()
 					)
 				)
 			}
@@ -486,51 +489,6 @@ class EngineModule : Module() {
 			temp.delete()
 			return null
 		}
-	}
-
-	private fun computeFrequencyBands(samples: FloatArray): Triple<Double, Double, Double> {
-		if (samples.size < fftSize) {
-			return Triple(0.33, 0.33, 0.34)
-		}
-
-		val windowed = FloatArray(fftSize)
-		for (i in 0 until fftSize) {
-			windowed[i] = samples[i] * fftWindow[i]
-		}
-
-		val halfSize = fftSize / 2
-		var lowEnergy = 0.0
-		var midEnergy = 0.0
-		var highEnergy = 0.0
-
-		for (k in 1 until halfSize) {
-			var real = 0.0
-			var imaginary = 0.0
-			for (n in 0 until fftSize) {
-				val angle = 2.0 * PI * k * n / fftSize
-				val sample = windowed[n].toDouble()
-				real += sample * cos(angle)
-				imaginary -= sample * sin(angle)
-			}
-
-			val magnitude = sqrt((real * real) + (imaginary * imaginary))
-			when {
-				k < 3 -> lowEnergy += magnitude
-				k < 29 -> midEnergy += magnitude
-				else -> highEnergy += magnitude
-			}
-		}
-
-		val totalEnergy = lowEnergy + midEnergy + highEnergy
-		if (totalEnergy <= 0.0) {
-			return Triple(0.33, 0.33, 0.34)
-		}
-
-		return Triple(
-			lowEnergy / totalEnergy,
-			midEnergy / totalEnergy,
-			highEnergy / totalEnergy
-		)
 	}
 
 	private fun debugLog(message: String) {

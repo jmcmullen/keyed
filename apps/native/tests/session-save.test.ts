@@ -28,6 +28,19 @@ describe("buildSave", () => {
 		const result = buildSave({
 			now: 10_000,
 			startedAt: 5_000,
+			result: null,
+			key: null,
+		});
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.err).toBe("Session not saved: requires BPM");
+		}
+	});
+
+	it("builds a persisted row when key is not ready", () => {
+		const result = buildSave({
+			now: 10_000,
+			startedAt: 5_000,
 			result: {
 				bpm: 128.2,
 				frameCount: 300,
@@ -36,9 +49,12 @@ describe("buildSave", () => {
 			},
 			key: null,
 		});
-		expect(result.ok).toBe(false);
-		if (!result.ok) {
-			expect(result.err).toBe("Session not saved: requires both BPM and key");
+		expect(result.ok).toBe(true);
+		if (result.ok) {
+			expect(result.row.bpm).toBe(128);
+			expect(result.row.key).toBe("Unknown");
+			expect(result.row.keyConfidence).toBe(0);
+			expect(result.row.camelotCode).toBe("--");
 		}
 	});
 

@@ -30,21 +30,22 @@ export function buildSave(input: SaveInput): SaveDecision {
 	if (!input.startedAt) {
 		return { ok: false, err: "Session not saved: start time missing" };
 	}
-	if (!input.result?.bpm || !input.key) {
-		return { ok: false, err: "Session not saved: requires both BPM and key" };
+	if (!input.result?.bpm) {
+		return { ok: false, err: "Session not saved: requires BPM" };
 	}
 	const duration = Math.max(
 		1,
 		Math.round((input.now - input.startedAt) / 1000),
 	);
+	const key = input.key;
 	return {
 		ok: true,
 		row: {
 			bpm: Math.round(input.result.bpm),
 			bpmConfidence: bpmConfidence(input.result.frameCount),
-			key: input.key.notation,
-			keyConfidence: input.key.confidence,
-			camelotCode: input.key.camelot,
+			key: key?.notation || "Unknown",
+			keyConfidence: key?.confidence || 0,
+			camelotCode: key?.camelot || "--",
 			duration,
 			createdAt: new Date(input.now),
 		},

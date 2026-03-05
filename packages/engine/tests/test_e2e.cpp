@@ -107,6 +107,23 @@ TEST_CASE("Engine state reset", "[e2e]") {
     REQUIRE(frameCount2 == 0);
 }
 
+TEST_CASE("Engine BPM processing handles long buffers", "[e2e][bpm]") {
+    Engine engine;
+
+    std::string modelPath = test_utils::getModelPath();
+    if (!engine.loadModel(modelPath)) {
+        SKIP("Model file not available");
+    }
+
+    auto audio = test_utils::generateClickTrack(120.0f, Engine::BPM_SAMPLE_RATE, 8.0f);
+    int produced = engine.processAudioForBpm(
+        audio.data(), static_cast<int>(audio.size()), nullptr, 0
+    );
+
+    INFO("Produced frames: " << produced);
+    REQUIRE(produced > 200);
+}
+
 TEST_CASE("Engine key detection initialization", "[e2e][key]") {
     Engine engine;
 
