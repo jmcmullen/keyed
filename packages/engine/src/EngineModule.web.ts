@@ -12,7 +12,7 @@ class EngineModuleWeb extends NativeModule<EngineModuleEvents> {
 	BPM_FPS = 50;
 	KEY_FPS = 5;
 
-	loadModel(): boolean {
+	async loadModel(): Promise<boolean> {
 		return false;
 	}
 
@@ -20,7 +20,7 @@ class EngineModuleWeb extends NativeModule<EngineModuleEvents> {
 		return false;
 	}
 
-	loadKeyModel(): boolean {
+	async loadKeyModel(): Promise<boolean> {
 		return false;
 	}
 

@@ -1,5 +1,5 @@
 import { useDb } from "@keyed/db";
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
 	Platform,
 	Pressable,
@@ -19,6 +19,8 @@ import {
 	buildSave,
 	bpmConfidence as getBpmConfidence,
 } from "@/lib/session-save";
+import { silenceTick } from "@/lib/silence-stop";
+import { tapClose, tapInit, tapNext } from "@/lib/tap-tempo";
 
 const STATUS_READY = "READY";
 const STATUS_ERROR = "ERROR";
@@ -27,6 +29,9 @@ const STATUS_LISTENING = "LISTENING";
 const STATUS_ANALYZING = "ANALYZING";
 const STATUS_WORKING = "WORKING";
 const WAVEFORM_HEIGHT = 200;
+const SILENCE_GATE = 0.01;
+const SILENCE_MS = 5_000;
+const TAP_TIMEOUT_MS = 3_000;
 
 export default function BeatNetTab() {
 	const db = useDb();
@@ -39,6 +44,7 @@ export default function BeatNetTab() {
 		waveformSamples,
 		beatActivation,
 		downbeatActivation,
+		audioLevel,
 		error,
 		startListening,
 		stopListening,
@@ -48,6 +54,9 @@ export default function BeatNetTab() {
 	const [waveformResetKey, setWaveformResetKey] = useState(0);
 	const [startedAt, setStartedAt] = useState<number | null>(null);
 	const [saveErr, setSaveErr] = useState<string | null>(null);
+	const [tap, setTap] = useState(() => tapInit());
+	const silenceRef = useRef<number | null>(null);
+	const tapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 	const dotAnimatedStyle = useAnimatedStyle(
 		() => ({
@@ -74,9 +83,28 @@ export default function BeatNetTab() {
 		};
 	}, [isListening, beatActivation, downbeatActivation]);
 
-	const handleStop = async () => {
+	const clearTapTimer = useCallback(() => {
+		if (!tapTimerRef.current) return;
+		clearTimeout(tapTimerRef.current);
+		tapTimerRef.current = null;
+	}, []);
+
+	const closeTap = useCallback(() => {
+		setTap((curr) => tapClose(curr));
+	}, []);
+
+	const onTap = useCallback(() => {
+		setTap((curr) => tapNext(curr, Date.now()));
+		clearTapTimer();
+		tapTimerRef.current = setTimeout(() => {
+			closeTap();
+		}, TAP_TIMEOUT_MS);
+	}, [clearTapTimer, closeTap]);
+
+	const handleStop = useCallback(async () => {
 		const stopped = stopListening();
 		if (!stopped) return;
+		silenceRef.current = null;
 		setStartedAt(null);
 		const save = buildSave({
 			now: Date.now(),
@@ -95,7 +123,33 @@ export default function BeatNetTab() {
 				err instanceof Error ? err.message : "Failed to save detection";
 			setSaveErr(message);
 		}
-	};
+	}, [stopListening, startedAt, result, key, db]);
+
+	useEffect(() => {
+		const now = Date.now();
+		const step = silenceTick(
+			isListening,
+			audioLevel,
+			now,
+			silenceRef.current,
+			SILENCE_GATE,
+			SILENCE_MS,
+		);
+		silenceRef.current = step.since;
+		if (!step.stop) return;
+		void handleStop();
+	}, [isListening, audioLevel, handleStop]);
+
+	useEffect(() => {
+		if (isListening) return;
+		silenceRef.current = null;
+	}, [isListening]);
+
+	useEffect(() => {
+		return () => {
+			clearTapTimer();
+		};
+	}, [clearTapTimer]);
 
 	const handlePress = async () => {
 		if (isBusy) return;
@@ -110,6 +164,7 @@ export default function BeatNetTab() {
 		setWaveformResetKey((k) => k + 1);
 		const started = await startListening();
 		if (!started) return;
+		silenceRef.current = null;
 		setStartedAt(Date.now());
 	};
 
@@ -131,10 +186,14 @@ export default function BeatNetTab() {
 		return STATUS_READY;
 	};
 
-	const bpmDisplay = result?.bpm ? result.bpm.toFixed(1) : "---.-";
-	const bpmConfidence = result?.bpm
-		? `${Math.round(getBpmConfidence(result.frameCount) * 100)}%`
-		: "--";
+	const manual = tap.active || (!result?.bpm && tap.bpm);
+	const shownBpm = tap.active ? tap.bpm : result?.bpm || tap.bpm;
+	const bpmDisplay = shownBpm ? shownBpm.toFixed(1) : "---.-";
+	const bpmConfidence = manual
+		? "MANUAL"
+		: result?.bpm
+			? `${Math.round(getBpmConfidence(result.frameCount) * 100)}%`
+			: "--";
 	const keyDisplay = key?.notation ?? "--";
 	const camelotDisplay = key?.camelot ?? "--";
 	const keyConfidence = key ? `${Math.round(key.confidence * 100)}%` : "--";
@@ -154,6 +213,18 @@ export default function BeatNetTab() {
 			<View style={styles.bpmSection}>
 				<Text style={styles.bpmLabel}>BPM</Text>
 				<Text style={styles.bpmValue}>{bpmDisplay}</Text>
+				{tap.active ? (
+					<Pressable onPress={onTap} style={styles.tapZone}>
+						<Text style={styles.tapZoneLabel}>TAP</Text>
+						<Text style={styles.tapZoneBpm}>
+							{tap.bpm ? `${tap.bpm.toFixed(1)} BPM` : "..."}
+						</Text>
+					</Pressable>
+				) : (
+					<Pressable onPress={onTap} style={styles.tapBtn}>
+						<Text style={styles.tapBtnTxt}>Tap tempo</Text>
+					</Pressable>
+				)}
 			</View>
 
 			<View style={styles.keySection}>
@@ -173,15 +244,17 @@ export default function BeatNetTab() {
 				</View>
 			</View>
 
-			<View style={styles.waveformContainer}>
-				<Waveform
-					samples={waveformSamples}
-					width={windowWidth - 32}
-					height={WAVEFORM_HEIGHT}
-					isActive={isListening}
-					resetKey={waveformResetKey}
-				/>
-			</View>
+			{isListening && (
+				<View style={styles.waveformContainer}>
+					<Waveform
+						samples={waveformSamples}
+						width={windowWidth - 32}
+						height={WAVEFORM_HEIGHT}
+						isActive={isListening}
+						resetKey={waveformResetKey}
+					/>
+				</View>
+			)}
 
 			{message && <Text style={styles.errorText}>{message}</Text>}
 
@@ -269,6 +342,44 @@ const styles = StyleSheet.create((theme) => ({
 		color: theme.colors.foreground,
 		fontVariant: ["tabular-nums"],
 		letterSpacing: -2,
+	},
+	tapBtn: {
+		marginTop: theme.spacing.sm,
+		paddingHorizontal: theme.spacing.md,
+		paddingVertical: 6,
+		borderRadius: theme.borderRadius.md,
+		borderWidth: 1,
+		borderColor: theme.colors.interaction.primary,
+		backgroundColor: theme.colors.surface.overlayStrong,
+	},
+	tapBtnTxt: {
+		fontSize: 13,
+		fontWeight: "600",
+		color: theme.colors.interaction.primary,
+	},
+	tapZone: {
+		marginTop: theme.spacing.sm,
+		width: "100%",
+		maxWidth: 300,
+		alignItems: "center",
+		paddingVertical: theme.spacing.md,
+		borderRadius: theme.borderRadius.lg,
+		borderWidth: 1,
+		borderColor: theme.colors.interaction.primaryActive,
+		backgroundColor: theme.colors.surface.overlayStrong,
+	},
+	tapZoneLabel: {
+		fontSize: 11,
+		fontWeight: "700",
+		letterSpacing: 2,
+		color: theme.colors.interaction.primaryActive,
+	},
+	tapZoneBpm: {
+		marginTop: 4,
+		fontSize: 20,
+		fontWeight: "700",
+		color: theme.colors.foreground,
+		fontVariant: ["tabular-nums"],
 	},
 	keySection: {
 		alignItems: "center",

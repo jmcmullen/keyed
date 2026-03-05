@@ -9,6 +9,7 @@
  */
 
 #include "catch_amalgamated.hpp"
+#include "MelExtractor.hpp"
 #include "OnnxModel.hpp"
 #include "test_utils.hpp"
 
@@ -81,6 +82,34 @@ TEST_CASE("OnnxModel inference produces valid outputs", "[onnx]") {
         REQUIRE(std::isfinite(output.beatActivation));
         REQUIRE(std::isfinite(output.downbeatActivation));
     }
+}
+
+TEST_CASE("OnnxModel beat channel dominates downbeat on click track", "[onnx][ordering]") {
+	OnnxModel model;
+
+	std::string modelPath = test_utils::getModelPath();
+	if (!model.load(modelPath)) {
+		SKIP("Model file not available");
+	}
+
+	StreamingMelExtractor mel;
+	auto audio = test_utils::generateClickTrack(120.0f, 22050.0f, 8.0f);
+	std::vector<float> melData(OnnxModel::INPUT_DIM * 600);
+	const int frames = mel.push(audio.data(), audio.size(), melData.data(), 600);
+	REQUIRE(frames > 0);
+
+	double beatSum = 0.0;
+	double downSum = 0.0;
+
+	model.resetState();
+	for (int i = 0; i < frames; i++) {
+		ModelOutput out;
+		REQUIRE(model.infer(&melData[i * OnnxModel::INPUT_DIM], out));
+		beatSum += out.beatActivation;
+		downSum += out.downbeatActivation;
+	}
+
+	REQUIRE(beatSum > downSum);
 }
 
 TEST_CASE("OnnxModel reset clears LSTM state", "[onnx]") {

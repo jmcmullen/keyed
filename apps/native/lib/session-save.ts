@@ -28,7 +28,7 @@ export function bpmConfidence(frames: number): number {
 
 export function buildSave(input: SaveInput): SaveDecision {
 	if (!input.startedAt) {
-		return { ok: false, err: "" };
+		return { ok: false, err: "Session not saved: start time missing" };
 	}
 	if (!input.result?.bpm || !input.key) {
 		return { ok: false, err: "Session not saved: requires both BPM and key" };

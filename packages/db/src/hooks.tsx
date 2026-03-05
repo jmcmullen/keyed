@@ -63,27 +63,29 @@ function DbProviderInner({ children }: { children: React.ReactNode }) {
 
 	const addDetection = useCallback(
 		async (newDetection: NewDetection): Promise<void> => {
-			await db.insert(detections).values({
+			const row: Detection = {
 				...newDetection,
 				id: randomUUID(),
-			});
-			await refetch();
+			};
+			await db.insert(detections).values(row);
+			setDetectionsData((list) =>
+				[row, ...list.filter((item) => item.id !== row.id)].sort(
+					(a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
+				),
+			);
 		},
-		[refetch],
+		[],
 	);
 
-	const deleteDetection = useCallback(
-		async (id: string): Promise<void> => {
-			await db.delete(detections).where(eq(detections.id, id));
-			await refetch();
-		},
-		[refetch],
-	);
+	const deleteDetection = useCallback(async (id: string): Promise<void> => {
+		await db.delete(detections).where(eq(detections.id, id));
+		setDetectionsData((list) => list.filter((item) => item.id !== id));
+	}, []);
 
 	const clearHistory = useCallback(async (): Promise<void> => {
 		await db.delete(detections);
-		await refetch();
-	}, [refetch]);
+		setDetectionsData([]);
+	}, []);
 
 	return (
 		<DbContext.Provider

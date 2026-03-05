@@ -101,17 +101,32 @@ export function useEngine(options: UseEngineOptions = {}): UseEngineReturn {
 
 	useEffect(() => {
 		setStatus("initializing");
+		let live = true;
 
-		const loaded = EngineModule.loadModel();
-		const loadedKey = EngineModule.loadKeyModel();
-		if (!loaded || !loadedKey) {
-			setError("Failed to load native detection models");
-			setStatus("error");
-			return;
-		}
+		void Promise.all([EngineModule.loadModel(), EngineModule.loadKeyModel()])
+			.then(([loaded, loadedKey]) => {
+				if (!live) return;
+				if (!loaded || !loadedKey) {
+					setError("Failed to load native detection models");
+					setStatus("error");
+					return;
+				}
+				setKeyReady(EngineModule.isKeyReady());
+				setStatus("idle");
+			})
+			.catch((err: unknown) => {
+				if (!live) return;
+				const message =
+					err instanceof Error
+						? err.message
+						: "Failed to load native detection models";
+				setError(message);
+				setStatus("error");
+			});
 
-		setKeyReady(EngineModule.isKeyReady());
-		setStatus("idle");
+		return () => {
+			live = false;
+		};
 	}, []);
 
 	useEffect(() => {

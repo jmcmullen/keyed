@@ -1,6 +1,7 @@
 import { type Detection, useDb } from "@keyed/db";
 import { useState } from "react";
 import { Alert, FlatList, Pressable, Text, View } from "react-native";
+import Swipeable from "react-native-gesture-handler/Swipeable";
 import { StyleSheet } from "react-native-unistyles";
 
 function formatWhen(value: Date): string {
@@ -65,6 +66,16 @@ export default function HistoryScreen() {
 		]);
 	};
 
+	const right = (item: Detection) => (
+		<Pressable
+			disabled={busy}
+			onPress={() => del(item)}
+			style={[styles.swipeDelBtn, busy && styles.btnDisabled]}
+		>
+			<Text style={styles.swipeDelTxt}>Delete</Text>
+		</Pressable>
+	);
+
 	return (
 		<View style={styles.container}>
 			<View style={styles.row}>
@@ -90,26 +101,25 @@ export default function HistoryScreen() {
 					</View>
 				}
 				renderItem={({ item }) => (
-					<View style={styles.card}>
-						<View style={styles.cardTop}>
-							<Text style={styles.bpm}>{item.bpm} BPM</Text>
-							<Text style={styles.key}>{item.key}</Text>
+					<Swipeable
+						enabled={!busy}
+						overshootRight={false}
+						renderRightActions={() => right(item)}
+					>
+						<View style={styles.card}>
+							<View style={styles.cardTop}>
+								<Text style={styles.bpm}>{item.bpm} BPM</Text>
+								<Text style={styles.key}>{item.key}</Text>
+							</View>
+							<Text style={styles.meta}>
+								{item.camelotCode} • key {Math.round(item.keyConfidence * 100)}%
+								• bpm {Math.round(item.bpmConfidence * 100)}%
+							</Text>
+							<Text style={styles.meta}>
+								{formatWhen(item.createdAt)} • {item.duration}s
+							</Text>
 						</View>
-						<Text style={styles.meta}>
-							{item.camelotCode} • key {Math.round(item.keyConfidence * 100)}% •
-							bpm {Math.round(item.bpmConfidence * 100)}%
-						</Text>
-						<Text style={styles.meta}>
-							{formatWhen(item.createdAt)} • {item.duration}s
-						</Text>
-						<Pressable
-							disabled={busy}
-							onPress={() => del(item)}
-							style={[styles.delBtn, busy && styles.btnDisabled]}
-						>
-							<Text style={styles.delTxt}>Delete</Text>
-						</Pressable>
-					</View>
+					</Swipeable>
 				)}
 			/>
 		</View>
@@ -186,16 +196,16 @@ const styles = StyleSheet.create((theme) => ({
 		color: theme.colors.mutedForeground,
 		fontSize: theme.fontSize.sm,
 	},
-	delBtn: {
-		marginTop: 4,
-		alignSelf: "flex-end",
-		paddingHorizontal: theme.spacing.sm,
-		paddingVertical: 4,
-		borderRadius: theme.borderRadius.sm,
-		backgroundColor: theme.colors.muted,
+	swipeDelBtn: {
+		justifyContent: "center",
+		alignItems: "center",
+		paddingHorizontal: theme.spacing.md,
+		backgroundColor: theme.colors.feedback.danger,
+		borderRadius: theme.borderRadius.lg,
+		marginBottom: theme.spacing.sm,
 	},
-	delTxt: {
-		color: theme.colors.feedback.danger,
+	swipeDelTxt: {
+		color: theme.colors.feedback.onDanger,
 		fontWeight: "600",
 		fontSize: theme.fontSize.sm,
 	},

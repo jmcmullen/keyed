@@ -104,13 +104,18 @@ class EngineModule : Module() {
 		// BPM Detection (BeatNet)
 		// =====================================================================
 
-		Function("loadModel") {
+		AsyncFunction("loadModel") { promise: Promise ->
 			val context = appContext.reactContext ?: run {
 				Log.e(TAG, "Context not available for loading model")
-				return@Function false
+				promise.resolve(false)
+				return@AsyncFunction
 			}
 
-			val modelPath = copyAssetToCache(context, "beatnet.onnx") ?: return@Function false
+			val modelPath = copyAssetToCache(context, "beatnet.onnx")
+			if (modelPath == null) {
+				promise.resolve(false)
+				return@AsyncFunction
+			}
 
 			val loaded = nativeLoadModel(modelPath)
 			if (loaded) {
@@ -118,7 +123,7 @@ class EngineModule : Module() {
 				val warmedUp = nativeWarmUp()
 				debugLog("BeatNet warm-up complete: $warmedUp")
 			}
-			loaded
+			promise.resolve(loaded)
 		}
 
 		Function("isReady") { nativeIsReady() }
@@ -129,13 +134,18 @@ class EngineModule : Module() {
 		// Key Detection (MusicalKeyCNN)
 		// =====================================================================
 
-		Function("loadKeyModel") {
+		AsyncFunction("loadKeyModel") { promise: Promise ->
 			val context = appContext.reactContext ?: run {
 				Log.e(TAG, "Context not available for loading key model")
-				return@Function false
+				promise.resolve(false)
+				return@AsyncFunction
 			}
 
-			val modelPath = copyAssetToCache(context, "keynet.onnx") ?: return@Function false
+			val modelPath = copyAssetToCache(context, "keynet.onnx")
+			if (modelPath == null) {
+				promise.resolve(false)
+				return@AsyncFunction
+			}
 
 			val loaded = nativeLoadKeyModel(modelPath)
 			if (loaded) {
@@ -143,7 +153,7 @@ class EngineModule : Module() {
 				val warmedUp = nativeWarmUpKey()
 				debugLog("MusicalKeyCNN warm-up complete: $warmedUp")
 			}
-			loaded
+			promise.resolve(loaded)
 		}
 
 		Function("isKeyReady") { nativeIsKeyReady() }

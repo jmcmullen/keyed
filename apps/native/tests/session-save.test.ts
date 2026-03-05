@@ -20,7 +20,7 @@ describe("buildSave", () => {
 		});
 		expect(result.ok).toBe(false);
 		if (!result.ok) {
-			expect(result.err).toBe("");
+			expect(result.err).toBe("Session not saved: start time missing");
 		}
 	});
 

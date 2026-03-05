@@ -87,9 +87,10 @@ public class EngineModule: Module {
 
 		// MARK: - BPM Detection (BeatNet)
 
-		Function("loadModel") { () -> Bool in
+		AsyncFunction("loadModel") { (promise: Promise) in
 			guard let modelPath = self.findResourcePath(name: "beatnet", ext: "onnx") else {
-				return false
+				promise.resolve(false)
+				return
 			}
 
 			self.debugLog("Loading BeatNet model from: \(modelPath)")
@@ -99,7 +100,7 @@ public class EngineModule: Module {
 				let warmedUp = self.bridge.warmUp()
 				self.debugLog("BeatNet warm-up complete: \(warmedUp)")
 			}
-			return loaded
+			promise.resolve(loaded)
 		}
 
 		Function("isReady") { self.bridge.isReady() }
@@ -108,9 +109,10 @@ public class EngineModule: Module {
 
 		// MARK: - Key Detection (MusicalKeyCNN)
 
-		Function("loadKeyModel") { () -> Bool in
+		AsyncFunction("loadKeyModel") { (promise: Promise) in
 			guard let modelPath = self.findResourcePath(name: "keynet", ext: "onnx") else {
-				return false
+				promise.resolve(false)
+				return
 			}
 
 			self.debugLog("Loading MusicalKeyCNN model from: \(modelPath)")
@@ -120,7 +122,7 @@ public class EngineModule: Module {
 				let warmedUp = self.bridge.warmUpKey()
 				self.debugLog("MusicalKeyCNN warm-up complete: \(warmedUp)")
 			}
-			return loaded
+			promise.resolve(loaded)
 		}
 
 		Function("isKeyReady") { self.bridge.isKeyReady() }

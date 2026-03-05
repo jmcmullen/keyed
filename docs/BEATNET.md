@@ -196,7 +196,7 @@ The 136 bands come from madmom's `LogarithmicFilterbank`:
 | Flatten | [1, 262] | |
 | Dense | [1, 150] | ReLU |
 | LSTM | [1, 150] | 2 layers, stateful |
-| Dense | [1, 3] | Softmax → [non-beat, beat, downbeat] |
+| Dense | [1, 3] | Softmax → [beat, downbeat, non-beat] |
 
 ### I/O Specification
 

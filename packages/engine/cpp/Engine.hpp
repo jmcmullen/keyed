@@ -157,6 +157,8 @@ public:
 	static constexpr int KEY_MAX_FRAMES = 1200;        // Keep last 4 minutes at 5 FPS
 
 private:
+	static constexpr int MAX_CQT_FRAMES_PER_PUSH = 20;
+
 	// Run key inference on accumulated CQT frames
 	void runKeyInference();
 
@@ -169,12 +171,15 @@ private:
 	// Key detection
 	std::unique_ptr<StreamingCqtExtractor> cqtExtractor_;
 	std::unique_ptr<KeyModel> keyModel_;
-	std::vector<float> cqtBuffer_;           // Fixed-capacity CQT window [KEY_MAX_FRAMES][N_BINS]
-	size_t cqtFrameCount_ = 0;               // Total frames processed since reset
-	size_t cqtWindowFrameCount_ = 0;         // Frames currently available in cqtBuffer_
-	size_t cqtFramesSinceInference_ = 0;     // Frames since last inference
+	std::vector<float> cqtBuffer_;            // Ring buffer [KEY_MAX_FRAMES][N_BINS]
+	std::vector<float> cqtScratch_;           // Scratch for CQT extractor output
+	std::vector<float> cqtInferenceBuffer_;   // Contiguous window for inferVariable
+	size_t cqtHead_ = 0;                      // Next write frame in cqtBuffer_
+	size_t cqtFrameCount_ = 0;                // Total frames processed since reset
+	size_t cqtWindowFrameCount_ = 0;          // Frames currently available in cqtBuffer_
+	size_t cqtFramesSinceInference_ = 0;      // Frames since last inference
 	KeyResult currentKey_;                    // Latest key detection result
-	int keyInferenceCount_ = 0;              // Number of inferences performed
+	int keyInferenceCount_ = 0;               // Number of inferences performed
 
 	// Resampling buffer
 	std::vector<float> resampleBuffer_;

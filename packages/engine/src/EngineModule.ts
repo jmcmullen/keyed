@@ -49,7 +49,7 @@ declare class EngineNativeModule
 	 * Load bundled BeatNet ONNX model for BPM detection
 	 * @returns true if loaded successfully
 	 */
-	loadModel(): boolean;
+	loadModel(): Promise<boolean>;
 
 	/**
 	 * Check if BeatNet model is loaded and ready
@@ -64,7 +64,7 @@ declare class EngineNativeModule
 	 * Load bundled MusicalKeyCNN ONNX model for key detection
 	 * @returns true if loaded successfully
 	 */
-	loadKeyModel(): boolean;
+	loadKeyModel(): Promise<boolean>;
 
 	/**
 	 * Check if MusicalKeyCNN model is loaded and ready
