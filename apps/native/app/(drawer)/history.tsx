@@ -1,5 +1,6 @@
 import { type Detection, useDb } from "@keyed/db";
-import { Alert, Pressable, ScrollView, Text, View } from "react-native";
+import { useState } from "react";
+import { Alert, FlatList, Pressable, Text, View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
 
 function formatWhen(value: Date): string {
@@ -12,6 +13,31 @@ function formatWhen(value: Date): string {
 
 export default function HistoryScreen() {
 	const db = useDb();
+	const [busy, setBusy] = useState(false);
+
+	const fail = (err: unknown) => {
+		const message =
+			err instanceof Error ? err.message : "Database action failed";
+		Alert.alert("Database error", message);
+	};
+
+	const clearDb = () => {
+		if (busy) return;
+		setBusy(true);
+		void db
+			.clearHistory()
+			.catch((err: unknown) => fail(err))
+			.finally(() => setBusy(false));
+	};
+
+	const delDb = (id: string) => {
+		if (busy) return;
+		setBusy(true);
+		void db
+			.deleteDetection(id)
+			.catch((err: unknown) => fail(err))
+			.finally(() => setBusy(false));
+	};
 
 	const clear = () => {
 		Alert.alert("Clear history", "Delete all saved detections?", [
@@ -20,7 +46,7 @@ export default function HistoryScreen() {
 				text: "Clear",
 				style: "destructive",
 				onPress: () => {
-					void db.clearHistory();
+					clearDb();
 				},
 			},
 		]);
@@ -33,7 +59,7 @@ export default function HistoryScreen() {
 				text: "Delete",
 				style: "destructive",
 				onPress: () => {
-					void db.deleteDetection(item.id);
+					delDb(item.id);
 				},
 			},
 		]);
@@ -43,18 +69,28 @@ export default function HistoryScreen() {
 		<View style={styles.container}>
 			<View style={styles.row}>
 				<Text style={styles.title}>History</Text>
-				<Pressable onPress={clear} style={styles.clearBtn}>
+				<Pressable
+					disabled={busy}
+					onPress={clear}
+					style={[styles.clearBtn, busy && styles.btnDisabled]}
+				>
 					<Text style={styles.clearTxt}>Clear all</Text>
 				</Pressable>
 			</View>
-			<ScrollView contentContainerStyle={styles.list}>
-				{db.detections.length === 0 && (
+			<FlatList
+				data={db.detections}
+				keyExtractor={(item) => item.id}
+				contentContainerStyle={[
+					styles.list,
+					db.detections.length === 0 && styles.emptyList,
+				]}
+				ListEmptyComponent={
 					<View style={styles.empty}>
 						<Text style={styles.emptyTxt}>No history yet</Text>
 					</View>
-				)}
-				{db.detections.map((item) => (
-					<View key={item.id} style={styles.card}>
+				}
+				renderItem={({ item }) => (
+					<View style={styles.card}>
 						<View style={styles.cardTop}>
 							<Text style={styles.bpm}>{item.bpm} BPM</Text>
 							<Text style={styles.key}>{item.key}</Text>
@@ -66,12 +102,16 @@ export default function HistoryScreen() {
 						<Text style={styles.meta}>
 							{formatWhen(item.createdAt)} • {item.duration}s
 						</Text>
-						<Pressable onPress={() => del(item)} style={styles.delBtn}>
+						<Pressable
+							disabled={busy}
+							onPress={() => del(item)}
+							style={[styles.delBtn, busy && styles.btnDisabled]}
+						>
 							<Text style={styles.delTxt}>Delete</Text>
 						</Pressable>
 					</View>
-				))}
-			</ScrollView>
+				)}
+			/>
 		</View>
 	);
 }
@@ -107,6 +147,9 @@ const styles = StyleSheet.create((theme) => ({
 	list: {
 		paddingBottom: theme.spacing.xl,
 		gap: theme.spacing.sm,
+	},
+	emptyList: {
+		flexGrow: 1,
 	},
 	empty: {
 		paddingVertical: theme.spacing.xl,
@@ -155,5 +198,8 @@ const styles = StyleSheet.create((theme) => ({
 		color: theme.colors.feedback.danger,
 		fontWeight: "600",
 		fontSize: theme.fontSize.sm,
+	},
+	btnDisabled: {
+		opacity: 0.5,
 	},
 }));

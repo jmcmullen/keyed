@@ -173,14 +173,14 @@ The 136 bands come from madmom's `LogarithmicFilterbank`:
 | Sample rate | 22050 Hz | Required |
 | Hop length | 441 samples | 20ms → 50 FPS |
 | Window length | 1411 samples | 64ms |
-| FFT size | 2048 | Zero-padded for efficiency |
+| FFT size | 1411 | Matches window length (no zero-padding) |
 | Mel bands | 136 | |
 | Model input | 272 | 136 mel + 136 diff |
 
 ### Critical Details
 
 - **Log10 scaling**: Uses `log10(1 + x)`, not natural log
-- **Filterbank resolution**: 2048-sample FFT for speed, but frequency mapping uses original 1411-sample resolution to get exactly 136 bands
+- **Filterbank resolution**: Uses a 1411-sample FFT (no zero-padding) with madmom-compatible bin mapping to produce exactly 136 bands
 
 ---
 

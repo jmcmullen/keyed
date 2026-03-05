@@ -5,6 +5,7 @@
 #ifdef ONNX_ENABLED
 
 #include "OnnxModel.hpp"
+#include "OnnxRuntime.hpp"
 #include <onnxruntime_c_api.h>
 #ifdef ONNX_ENABLE_COREML
 #include <coreml_provider_factory.h>
@@ -44,19 +45,11 @@ void OnnxModel::cleanup() {
         api_->ReleaseSession(session_);
         session_ = nullptr;
     }
-    if (sessionOptions_ && api_) {
-        api_->ReleaseSessionOptions(sessionOptions_);
-        sessionOptions_ = nullptr;
-    }
-    if (memoryInfo_ && api_) {
-        api_->ReleaseMemoryInfo(memoryInfo_);
-        memoryInfo_ = nullptr;
-    }
-    if (env_ && api_) {
-        api_->ReleaseEnv(env_);
-        env_ = nullptr;
-    }
-    isLoaded_ = false;
+	if (sessionOptions_ && api_) {
+		api_->ReleaseSessionOptions(sessionOptions_);
+		sessionOptions_ = nullptr;
+	}
+	isLoaded_ = false;
 }
 
 void OnnxModel::initializeLstmState() {
@@ -65,27 +58,19 @@ void OnnxModel::initializeLstmState() {
 }
 
 bool OnnxModel::load(const std::string& modelPath) {
-    cleanup();
+	cleanup();
 
-    // Get the ONNX Runtime API
-    api_ = OrtGetApiBase()->GetApi(ORT_API_VERSION);
-    if (!api_) {
-        LOGE("Failed to get ONNX Runtime API\n");
-        return false;
-    }
+	auto& runtime = OnnxRuntime::instance();
+	if (!runtime.isInitialized()) {
+		LOGE("ONNX Runtime not initialized\n");
+		return false;
+	}
+	api_ = runtime.api();
 
-    OrtStatus* status = nullptr;
+	OrtStatus* status = nullptr;
 
-    // Create environment
-    status = api_->CreateEnv(ORT_LOGGING_LEVEL_WARNING, "BeatNet", &env_);
-    if (status) {
-        LOGE("CreateEnv failed: %s\n", api_->GetErrorMessage(status));
-        api_->ReleaseStatus(status);
-        return false;
-    }
-
-    // Create session options
-    status = api_->CreateSessionOptions(&sessionOptions_);
+	// Create session options
+	status = api_->CreateSessionOptions(&sessionOptions_);
     if (status) {
         LOGE("CreateSessionOptions failed: %s\n", api_->GetErrorMessage(status));
         api_->ReleaseStatus(status);
@@ -118,19 +103,10 @@ bool OnnxModel::load(const std::string& modelPath) {
     LOGI("Using CPU execution provider\n");
 #endif
 
-    // Create memory info
-    status = api_->CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &memoryInfo_);
-    if (status) {
-        LOGE("CreateCpuMemoryInfo failed: %s\n", api_->GetErrorMessage(status));
-        api_->ReleaseStatus(status);
-        cleanup();
-        return false;
-    }
-
-    // Create session
-    status = api_->CreateSession(env_, modelPath.c_str(), sessionOptions_, &session_);
-    if (status) {
-        LOGE("CreateSession failed: %s\n", api_->GetErrorMessage(status));
+	// Create session
+	status = api_->CreateSession(runtime.env(), modelPath.c_str(), sessionOptions_, &session_);
+	if (status) {
+		LOGE("CreateSession failed: %s\n", api_->GetErrorMessage(status));
         api_->ReleaseStatus(status);
         cleanup();
         return false;
@@ -152,11 +128,15 @@ void OnnxModel::resetState() {
 }
 
 bool OnnxModel::infer(const float* features, ModelOutput& output) {
-    if (!isReady()) {
-        return false;
-    }
+	if (!isReady()) {
+		return false;
+	}
+	auto& runtime = OnnxRuntime::instance();
+	if (!runtime.isInitialized()) {
+		return false;
+	}
 
-    OrtStatus* status = nullptr;
+	OrtStatus* status = nullptr;
 
     // Input shapes
     const int64_t inputShape[] = {1, 1, INPUT_DIM};          // [batch, seq, features]
@@ -167,10 +147,10 @@ bool OnnxModel::infer(const float* features, ModelOutput& output) {
     OrtValue* hiddenTensor = nullptr;
     OrtValue* cellTensor = nullptr;
 
-    status = api_->CreateTensorWithDataAsOrtValue(
-        memoryInfo_,
-        const_cast<float*>(features),
-        INPUT_DIM * sizeof(float),
+	status = api_->CreateTensorWithDataAsOrtValue(
+		runtime.memoryInfo(),
+		const_cast<float*>(features),
+		INPUT_DIM * sizeof(float),
         inputShape, 3,
         ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT,
         &inputTensor
@@ -181,9 +161,9 @@ bool OnnxModel::infer(const float* features, ModelOutput& output) {
         return false;
     }
 
-    status = api_->CreateTensorWithDataAsOrtValue(
-        memoryInfo_,
-        hidden_.data(),
+	status = api_->CreateTensorWithDataAsOrtValue(
+		runtime.memoryInfo(),
+		hidden_.data(),
         hidden_.size() * sizeof(float),
         hiddenShape, 3,
         ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT,
@@ -196,9 +176,9 @@ bool OnnxModel::infer(const float* features, ModelOutput& output) {
         return false;
     }
 
-    status = api_->CreateTensorWithDataAsOrtValue(
-        memoryInfo_,
-        cell_.data(),
+	status = api_->CreateTensorWithDataAsOrtValue(
+		runtime.memoryInfo(),
+		cell_.data(),
         cell_.size() * sizeof(float),
         hiddenShape, 3,
         ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT,

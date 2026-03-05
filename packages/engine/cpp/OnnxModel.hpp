@@ -78,11 +78,9 @@ private:
     void cleanup();
     void initializeLstmState();
 
-    const OrtApi* api_ = nullptr;
-    OrtEnv* env_ = nullptr;
-    OrtSession* session_ = nullptr;
-    OrtSessionOptions* sessionOptions_ = nullptr;
-    OrtMemoryInfo* memoryInfo_ = nullptr;
+	const OrtApi* api_ = nullptr;
+	OrtSession* session_ = nullptr;
+	OrtSessionOptions* sessionOptions_ = nullptr;
 
     // LSTM hidden state (persisted between inference calls)
     std::vector<float> hidden_;

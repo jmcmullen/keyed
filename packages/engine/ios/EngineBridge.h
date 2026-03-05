@@ -107,6 +107,20 @@ NS_ASSUME_NONNULL_BEGIN
 - (nullable NSArray<EngineFrameResult *> *)processAudio:(NSArray<NSNumber *> *)samples;
 
 /**
+ * Process raw audio samples at 44100 Hz without ObjC boxing.
+ * Intended for real-time callback paths.
+ * @param samples Pointer to audio samples
+ * @param sampleCount Number of samples
+ * @param beatActivation Out: last beat activation
+ * @param downbeatActivation Out: last downbeat activation
+ * @return YES if at least one frame result was produced
+ */
+- (BOOL)processAudioBuffer:(const float *)samples
+                sampleCount:(NSUInteger)sampleCount
+             beatActivation:(float *)beatActivation
+        downbeatActivation:(float *)downbeatActivation;
+
+/**
  * Process audio samples at 22050 Hz for BPM only (legacy compatibility)
  * Does NOT process key detection
  * @param samples Audio samples at 22050Hz

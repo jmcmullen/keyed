@@ -236,24 +236,9 @@ public class EngineModule: Module {
 		let converter = AVAudioConverter(from: inputFormat, to: targetFormat)
 		// Buffer size for ~20ms at input sample rate (good for real-time processing)
 		let bufferSize = AVAudioFrameCount(inputFormat.sampleRate / 50.0)
+		let conversionCapacity = AVAudioFrameCount(ceil(Double(bufferSize) * targetFormat.sampleRate / inputFormat.sampleRate)) + 32
+		let conversionBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: conversionCapacity)
 
-		inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: inputFormat) { [weak self] buffer, time in
-			guard let self = self else { return }
-
-			var samples: [Float]
-			if inputFormat.sampleRate == 44100 {
-				samples = self.extractSamples(from: buffer)
-			} else if let converter = converter {
-				samples = self.convertAndExtract(buffer: buffer, converter: converter, targetFormat: targetFormat)
-			} else {
-				return
-			}
-			self.processAudioSamples(samples)
-		}
-
-		audioEngine.prepare()
-		try audioEngine.start()
-		isRecordingAudio = true
 		bridge.reset()
 		lastKeyNotation = ""
 		lastKeyCamelot = ""
@@ -265,6 +250,29 @@ public class EngineModule: Module {
 		recordingStartTime = Date().timeIntervalSince1970
 		lastStateEmitTime = 0
 		lastWaveformEmitTime = 0
+
+		inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: inputFormat) { [weak self] buffer, _ in
+			guard let self = self else { return }
+
+			if inputFormat.sampleRate == 44100 {
+				guard let data = buffer.floatChannelData?[0] else { return }
+				self.processAudioSamples(data, count: Int(buffer.frameLength))
+				return
+			}
+			guard let converter = converter, let conversionBuffer = conversionBuffer else {
+				return
+			}
+			let sampleCount = self.convert(buffer: buffer, converter: converter, outputBuffer: conversionBuffer)
+			if sampleCount <= 0 {
+				return
+			}
+			guard let data = conversionBuffer.floatChannelData?[0] else { return }
+			self.processAudioSamples(data, count: sampleCount)
+		}
+
+		audioEngine.prepare()
+		try audioEngine.start()
+		isRecordingAudio = true
 		debugLog("Audio engine started at \(inputFormat.sampleRate)Hz -> 44100Hz, buffer: \(bufferSize), waveform: \(enableWaveformEvents)")
 	}
 
@@ -278,11 +286,6 @@ public class EngineModule: Module {
 
 		try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
 		debugLog("Audio engine stopped")
-	}
-
-	private func extractSamples(from buffer: AVAudioPCMBuffer) -> [Float] {
-		guard let channelData = buffer.floatChannelData?[0] else { return [] }
-		return Array(UnsafeBufferPointer(start: channelData, count: Int(buffer.frameLength)))
 	}
 
 	private func computeFrequencyBands(_ samples: [Float]) -> (low: Float, mid: Float, high: Float) {
@@ -332,15 +335,13 @@ public class EngineModule: Module {
 		return (0.33, 0.33, 0.34)
 	}
 
-	private func convertAndExtract(buffer: AVAudioPCMBuffer, converter: AVAudioConverter, targetFormat: AVAudioFormat) -> [Float] {
-		let ratio = targetFormat.sampleRate / buffer.format.sampleRate
+	private func convert(buffer: AVAudioPCMBuffer, converter: AVAudioConverter, outputBuffer: AVAudioPCMBuffer) -> Int {
+		let ratio = outputBuffer.format.sampleRate / buffer.format.sampleRate
 		let outputFrameCount = AVAudioFrameCount(Double(buffer.frameLength) * ratio)
-
-		guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: outputFrameCount) else {
-			return []
+		if outputFrameCount > outputBuffer.frameCapacity {
+			return 0
 		}
 		outputBuffer.frameLength = outputFrameCount
-
 		var error: NSError?
 		var inputConsumed = false
 		let inputBlock: AVAudioConverterInputBlock = { _, outStatus in
@@ -353,37 +354,45 @@ public class EngineModule: Module {
 			return buffer
 		}
 
-		converter.convert(to: outputBuffer, error: &error, withInputFrom: inputBlock)
+		let status = converter.convert(to: outputBuffer, error: &error, withInputFrom: inputBlock)
 		if let error = error {
 			debugLog("Conversion error: \(error)")
-			return []
+			return 0
 		}
-
-		return extractSamples(from: outputBuffer)
+		if status == .error {
+			return 0
+		}
+		return Int(outputBuffer.frameLength)
 	}
 
 	private var processCallCount = 0
 	private var recordingStartTime: TimeInterval = 0
 
-	private func processAudioSamples(_ samples: [Float]) {
+	private func processAudioSamples(_ samples: UnsafePointer<Float>, count: Int) {
 		processCallCount += 1
-		guard !samples.isEmpty else { return }
+		guard count > 0 else { return }
 
-		let nsSamples = samples.map { NSNumber(value: $0) }
-		let results = bridge.processAudio(nsSamples)
+		var beatActivation: Float = 0
+		var downbeatActivation: Float = 0
+		let hasState = bridge.processAudioBuffer(
+			samples,
+			sampleCount: count,
+			beatActivation: &beatActivation,
+			downbeatActivation: &downbeatActivation
+		)
 
 		let now = Date().timeIntervalSince1970
 		let timestamp = now - recordingStartTime
 
 		// Emit BPM state events (if available)
-			if let result = results?.last, now - lastStateEmitTime >= stateEmitInterval {
-				lastStateEmitTime = now
-				sendEvent("onState", [
-					"beatActivation": Double(result.beatActivation),
-					"downbeatActivation": Double(result.downbeatActivation),
-					"timestamp": timestamp
-				])
-			}
+		if hasState && now - lastStateEmitTime >= stateEmitInterval {
+			lastStateEmitTime = now
+			sendEvent("onState", [
+				"beatActivation": Double(beatActivation),
+				"downbeatActivation": Double(downbeatActivation),
+				"timestamp": timestamp
+			])
+		}
 
 		// Check for key detection updates (emit on key change OR significant confidence change)
 		let keyResult = bridge.getKey()
@@ -404,7 +413,8 @@ public class EngineModule: Module {
 
 		// Waveform processing
 		if enableWaveformEvents {
-			for sample in samples {
+			for i in 0..<count {
+				let sample = samples[i]
 				waveformInputBuffer[waveformWriteIndex] = sample
 				waveformWriteIndex = (waveformWriteIndex + 1) % waveformInputSize
 				waveformSamplesAccumulated += 1

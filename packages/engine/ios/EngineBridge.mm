@@ -2,6 +2,7 @@
 #include "Engine.hpp"
 #include <vector>
 #include <stdexcept>
+#include <mutex>
 
 @implementation EngineFrameResult
 @end
@@ -13,6 +14,7 @@
 {
 	engine::Engine* _engine;
 	std::vector<engine::Engine::FrameResult> _resultBuffer;
+	std::mutex _engineMutex;
 	BOOL _engineInitialized;
 	BOOL _engineInitFailed;
 }
@@ -39,8 +41,9 @@
 	return self;
 }
 
-/// Lazily initialize the engine - returns YES if engine is ready
-- (BOOL)ensureEngineInitialized {
+/// Lazily initialize the engine - returns YES if engine is ready.
+/// Caller must hold _engineMutex.
+- (BOOL)ensureEngineInitializedLocked {
 	if (_engineInitFailed) {
 		return NO;
 	}
@@ -69,6 +72,7 @@
 }
 
 - (void)dealloc {
+	std::lock_guard<std::mutex> lock(_engineMutex);
 	if (_engine) {
 		delete _engine;
 		_engine = nullptr;
@@ -77,6 +81,7 @@
 
 - (void)reset {
 	try {
+		std::lock_guard<std::mutex> lock(_engineMutex);
 		if (_engine) {
 			_engine->reset();
 		}
@@ -93,7 +98,8 @@
 
 - (BOOL)loadModel:(NSString *)modelPath {
 		try {
-			if (![self ensureEngineInitialized]) {
+			std::lock_guard<std::mutex> lock(_engineMutex);
+			if (![self ensureEngineInitializedLocked]) {
 				NSLog(@"[EngineBridge] loadModel: engine not initialized");
 				return NO;
 			}
@@ -116,6 +122,7 @@
 
 - (BOOL)isReady {
 	try {
+		std::lock_guard<std::mutex> lock(_engineMutex);
 		return _engine && _engine->isReady();
 	} catch (...) {
 		return NO;
@@ -124,6 +131,7 @@
 
 - (BOOL)warmUp {
 	try {
+		std::lock_guard<std::mutex> lock(_engineMutex);
 		return _engine && _engine->warmUp();
 	} catch (const std::exception& e) {
 		NSLog(@"[EngineBridge] warmUp failed with C++ exception: %s", e.what());
@@ -136,6 +144,7 @@
 
 - (float)getBpm {
 	try {
+		std::lock_guard<std::mutex> lock(_engineMutex);
 		return _engine ? _engine->getBpm() : 0.0f;
 	} catch (...) {
 		return 0.0f;
@@ -144,6 +153,7 @@
 
 - (NSUInteger)getFrameCount {
 	try {
+		std::lock_guard<std::mutex> lock(_engineMutex);
 		return _engine ? static_cast<NSUInteger>(_engine->getFrameCount()) : 0;
 	} catch (...) {
 		return 0;
@@ -156,7 +166,8 @@
 
 - (BOOL)loadKeyModel:(NSString *)modelPath {
 		try {
-			if (![self ensureEngineInitialized]) {
+			std::lock_guard<std::mutex> lock(_engineMutex);
+			if (![self ensureEngineInitializedLocked]) {
 				NSLog(@"[EngineBridge] loadKeyModel: engine not initialized");
 				return NO;
 			}
@@ -179,6 +190,7 @@
 
 - (BOOL)isKeyReady {
 	try {
+		std::lock_guard<std::mutex> lock(_engineMutex);
 		return _engine && _engine->isKeyReady();
 	} catch (...) {
 		return NO;
@@ -187,6 +199,7 @@
 
 - (BOOL)warmUpKey {
 	try {
+		std::lock_guard<std::mutex> lock(_engineMutex);
 		return _engine && _engine->warmUpKey();
 	} catch (const std::exception& e) {
 		NSLog(@"[EngineBridge] warmUpKey failed with C++ exception: %s", e.what());
@@ -205,8 +218,16 @@
 	result.valid = NO;
 
 	try {
-		if (_engine) {
-			engine::Engine::KeyResult cppResult = _engine->getKey();
+		engine::Engine::KeyResult cppResult;
+		BOOL hasResult = NO;
+		{
+			std::lock_guard<std::mutex> lock(_engineMutex);
+			if (_engine) {
+				cppResult = _engine->getKey();
+				hasResult = YES;
+			}
+		}
+		if (hasResult) {
 			result.camelot = [NSString stringWithUTF8String:cppResult.camelot.c_str()];
 			result.notation = [NSString stringWithUTF8String:cppResult.notation.c_str()];
 			result.confidence = cppResult.confidence;
@@ -223,6 +244,7 @@
 
 - (NSUInteger)getKeyFrameCount {
 	try {
+		std::lock_guard<std::mutex> lock(_engineMutex);
 		return _engine ? static_cast<NSUInteger>(_engine->getKeyFrameCount()) : 0;
 	} catch (...) {
 		return 0;
@@ -235,18 +257,18 @@
 
 - (nullable NSArray<EngineFrameResult *> *)processAudio:(NSArray<NSNumber *> *)samples {
 		try {
+			std::vector<float> floatSamples(samples.count);
+			for (NSUInteger i = 0; i < samples.count; i++) {
+				floatSamples[i] = [samples[i] floatValue];
+			}
+
+			std::lock_guard<std::mutex> lock(_engineMutex);
 			if (!_engine || samples.count == 0) {
 				return @[];
 			}
 
-		// Convert NSArray to float array
-		std::vector<float> floatSamples(samples.count);
-		for (NSUInteger i = 0; i < samples.count; i++) {
-			floatSamples[i] = [samples[i] floatValue];
-		}
-
-		// Process audio at 44100 Hz (handles both BPM and key)
-		int maxResults = static_cast<int>(_resultBuffer.size());
+			// Process audio at 44100 Hz (handles both BPM and key)
+			int maxResults = static_cast<int>(_resultBuffer.size());
 		int numResults = _engine->processAudio(floatSamples.data(),
 		                                       static_cast<int>(floatSamples.size()),
 		                                       _resultBuffer.data(),
@@ -272,20 +294,61 @@
 	} catch (...) {
 		NSLog(@"[EngineBridge] processAudio failed with unknown exception");
 		return nil;
+		}
+	}
+
+- (BOOL)processAudioBuffer:(const float *)samples
+                sampleCount:(NSUInteger)sampleCount
+             beatActivation:(float *)beatActivation
+        downbeatActivation:(float *)downbeatActivation {
+	try {
+		if (samples == nullptr || sampleCount == 0) {
+			return NO;
+		}
+
+		std::lock_guard<std::mutex> lock(_engineMutex);
+		if (!_engine) {
+			return NO;
+		}
+
+		int maxResults = static_cast<int>(_resultBuffer.size());
+		int numResults = _engine->processAudio(samples,
+		                                      static_cast<int>(sampleCount),
+		                                      _resultBuffer.data(),
+		                                      maxResults);
+
+		if (numResults <= 0) {
+			return NO;
+		}
+
+		const engine::Engine::FrameResult& result = _resultBuffer[numResults - 1];
+		if (beatActivation != nullptr) {
+			*beatActivation = result.beatActivation;
+		}
+		if (downbeatActivation != nullptr) {
+			*downbeatActivation = result.downbeatActivation;
+		}
+		return YES;
+	} catch (const std::exception& e) {
+		NSLog(@"[EngineBridge] processAudioBuffer failed with C++ exception: %s", e.what());
+		return NO;
+	} catch (...) {
+		NSLog(@"[EngineBridge] processAudioBuffer failed with unknown exception");
+		return NO;
 	}
 }
 
 - (nullable NSArray<EngineFrameResult *> *)processAudioForBpm:(NSArray<NSNumber *> *)samples {
 		try {
+			std::vector<float> floatSamples(samples.count);
+			for (NSUInteger i = 0; i < samples.count; i++) {
+				floatSamples[i] = [samples[i] floatValue];
+			}
+
+			std::lock_guard<std::mutex> lock(_engineMutex);
 			if (!_engine || !_engine->isReady() || samples.count == 0) {
 				return @[];
 			}
-
-		// Convert NSArray to float array
-		std::vector<float> floatSamples(samples.count);
-		for (NSUInteger i = 0; i < samples.count; i++) {
-			floatSamples[i] = [samples[i] floatValue];
-		}
 
 		// Process audio at 22050 Hz (BPM only, no key detection)
 		int maxResults = static_cast<int>(_resultBuffer.size());

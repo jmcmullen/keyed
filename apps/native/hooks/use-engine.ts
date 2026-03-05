@@ -1,5 +1,6 @@
 import type { KeyResult, State, WaveformData } from "@keyed/engine";
 import EngineModule from "@keyed/engine";
+import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { resolvePermission } from "@/lib/engine-permission";
 
@@ -199,6 +200,32 @@ export function useEngine(options: UseEngineOptions = {}): UseEngineReturn {
 			stateSubscription.remove();
 			waveformSubscription.remove();
 			keySubscription.remove();
+		};
+	}, []);
+
+	useFocusEffect(
+		useCallback(() => {
+			return () => {
+				if (!isListeningRef.current) {
+					return;
+				}
+				isListeningRef.current = false;
+				setIsListening(false);
+				setStatus(
+					resultRef.current?.bpm && resultRef.current.bpm > 0
+						? "detected"
+						: "idle",
+				);
+				EngineModule.stopRecording();
+			};
+		}, []),
+	);
+
+	useEffect(() => {
+		return () => {
+			isListeningRef.current = false;
+			EngineModule.stopRecording();
+			EngineModule.reset();
 		};
 	}, []);
 
