@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, inArray } from "drizzle-orm";
 import { useMigrations } from "drizzle-orm/expo-sqlite/migrator";
 import { randomUUID } from "expo-crypto";
 import {
@@ -22,6 +22,7 @@ interface DbContextValue {
 }
 
 const DbContext = createContext<DbContextValue | null>(null);
+const LIMIT = 2_000;
 
 export function DbProvider({ children }: { children: React.ReactNode }) {
 	const { success: isReady, error } = useMigrations(db, migrations);
@@ -62,9 +63,23 @@ function DbProviderInner({ children }: { children: React.ReactNode }) {
 		const result = await db
 			.select()
 			.from(detections)
-			.orderBy(desc(detections.createdAt));
+			.orderBy(desc(detections.createdAt))
+			.limit(LIMIT);
 		setError(null);
 		setDetectionsData(result);
+	}, []);
+
+	const trim = useCallback(async (): Promise<void> => {
+		const stale = await db
+			.select({ id: detections.id })
+			.from(detections)
+			.orderBy(desc(detections.createdAt))
+			.offset(LIMIT);
+		if (stale.length === 0) {
+			return;
+		}
+		const ids = stale.map((item) => item.id);
+		await db.delete(detections).where(inArray(detections.id, ids));
 	}, []);
 
 	useEffect(() => {
@@ -80,14 +95,15 @@ function DbProviderInner({ children }: { children: React.ReactNode }) {
 				id: randomUUID(),
 			};
 			await db.insert(detections).values(row);
+			await trim();
 			setError(null);
 			setDetectionsData((list) =>
-				[row, ...list.filter((item) => item.id !== row.id)].sort(
-					(a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
-				),
+				[row, ...list.filter((item) => item.id !== row.id)]
+					.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+					.slice(0, LIMIT),
 			);
 		},
-		[],
+		[trim],
 	);
 
 	const deleteDetection = useCallback(async (id: string): Promise<void> => {

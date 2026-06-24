@@ -2,85 +2,147 @@
 
 **DJ BPM & Key Finder**
 
-Detect the key and BPM of any song playing around you, completely offline. Built for DJs mixing vinyl and digital.
+Keyed detects the BPM and musical key of music playing around you, fully on device. It is built for DJs who need quick tempo, key, and Camelot readings while mixing vinyl, CDJs, and digital sources.
 
 ## Features
 
-- **Real-time detection** — Instantly identifies BPM and musical key via your device's microphone
-- **Confidence scoring** — See how accurate each reading is
-- **Fully offline** — No internet required, no data leaves your device
-- **Cross-platform** — Available on iOS and Android
+- **Real-time BPM detection** from microphone input
+- **Real-time key detection** with standard notation and Camelot codes
+- **Confidence scoring** for BPM and key readings
+- **Tap tempo** for manual BPM entry
+- **Live waveform visualizer** while listening
+- **Auto-stop on silence** after a quiet section
+- **Local history** of saved detections with swipe-to-delete and clear-all actions
+- **Fully offline processing** with no server dependency
+- **iOS and Android support** through Expo and native modules
 
 ## Privacy
 
-Keyed processes all audio locally on your device. No audio data, song information, or usage analytics are ever collected or transmitted. Your listening stays private.
+Keyed processes microphone audio locally on the device. Audio, song information, detection history, and usage analytics are not transmitted by the app. Saved detections are stored locally in Expo SQLite.
+
+## Monorepo
+
+This repository is a Bun workspace managed with Turborepo.
+
+| Path | Purpose |
+| --- | --- |
+| `apps/native` | Expo React Native mobile app |
+| `packages/engine` | Expo native module for BPM/key analysis |
+| `packages/db` | Drizzle ORM schema, migrations, and Expo SQLite hooks |
+| `packages/config` | Shared TypeScript configuration |
+| `docs` | Product spec and native analysis documentation |
+| `scripts` | Native engine test and model comparison helpers |
 
 ## Tech Stack
 
-- [Expo](https://expo.dev) / React Native
+- Bun workspaces and Turborepo
+- Expo 54, React Native 0.81, React 19, and Expo Router
 - TypeScript
-- [react-native-unistyles](https://github.com/jpudysz/react-native-unistyles) for styling
-- [TanStack Query](https://tanstack.com/query) for state management
-- Turborepo monorepo structure
+- `react-native-unistyles` for styling
+- React Native Reanimated and Skia for the waveform UI
+- Drizzle ORM with Expo SQLite for local history
+- Native C++ DSP and inference through `@keyed/engine`
+- ONNX Runtime with bundled BeatNet and MusicalKeyCNN models
 
-## Analysis Documentation
+## Native Analysis
 
-- [`docs/ANALYSIS.md`](docs/ANALYSIS.md) - Current end-to-end native analysis architecture (BPM + key)
-- [`docs/BEATNET.md`](docs/BEATNET.md) - BPM pipeline internals and model notes
-- [`docs/KEY_DETECTION.md`](docs/KEY_DETECTION.md) - Key-analysis pipeline internals and API
+The mobile app talks to `@keyed/engine`, an Expo module with shared C++ analysis code and platform bridges for iOS and Android.
 
-## Development
+- BPM path: microphone audio -> resampling -> mel features -> BeatNet ONNX model -> autocorrelation BPM estimate
+- Key path: microphone audio -> CQT features -> MusicalKeyCNN ONNX model -> key, Camelot code, and confidence
+- Bundled models live in `packages/engine/models/beatnet.onnx` and `packages/engine/models/keynet.onnx`
+- The TypeScript module API is defined in `packages/engine/src/Engine.types.ts`
 
-### Prerequisites
+See [`packages/engine/README.md`](packages/engine/README.md) for the native module API and package-specific notes.
 
-- [Bun](https://bun.sh) v1.2.16+
-- iOS Simulator / Android Emulator or physical device
-- Xcode (for iOS) / Android Studio (for Android)
+## Requirements
 
-### Setup
+- [Bun](https://bun.sh) `1.2.16` or newer
+- Xcode and an iOS Simulator or physical iOS device for iOS work
+- Android Studio and an emulator or physical Android device for Android work
+- CMake and a C++ toolchain for native engine tests
+- EAS CLI for the `apps/native` EAS build scripts
+- `ios-deploy` only when using the local iOS build scripts that install an `.ipa`
+
+## Setup
 
 ```bash
-# Clone the repository
 git clone https://github.com/jmcmullen/keyed.git
 cd keyed
-
-# Install dependencies
 bun install
-
-# Start the development server
 bun run dev:native
 ```
 
-### Scripts
+The app does not currently require environment variables for local offline detection. `apps/native/.env.example` is present for public Expo config if that becomes necessary.
+
+Because the app uses native modules, use a development build or native run command when testing on devices:
+
+```bash
+bun --cwd apps/native run ios
+bun --cwd apps/native run android
+```
+
+## Commands
 
 | Command | Description |
-|---------|-------------|
-| `bun run dev:native` | Start Expo development server |
-| `bun run build` | Build all packages |
-| `bun run check` | Run linting and formatting |
-| `bun run check-types` | TypeScript type checking |
+| --- | --- |
+| `bun run dev` | Run all Turbo dev tasks |
+| `bun run dev:native` | Start the Expo dev server for `apps/native` |
+| `bun run build` | Build packages through Turbo |
+| `bun run check` | Run Biome linting and formatting |
+| `bun run check-types` | Typecheck all packages |
+| `bun --cwd apps/native test` | Run the native app Bun tests |
+| `bun run test:native` | Build and run the C++ engine test suite |
+| `bun run test:native:build` | Build the C++ engine tests |
+| `bun run test:native:run` | Run the already-built C++ engine tests |
+| `bun run test:native:golden` | Regenerate native engine golden files |
+| `bun --cwd packages/db db:generate` | Generate Drizzle migrations |
+| `bun --cwd packages/db db:studio` | Open Drizzle Studio |
+
+Additional engine-focused helpers live in `scripts/`, including model comparison, full-track testing, BeatNet testing, and streaming extractor checks.
+
+## Build Profiles
+
+`apps/native/eas.json` defines three EAS profiles:
+
+| Profile | Purpose |
+| --- | --- |
+| `development` | Internal dev-client builds; iOS simulator and Android APK |
+| `preview` | Internal preview builds |
+| `production` | Store-oriented production builds with auto-incrementing versions |
+
+App-level build scripts are defined in `apps/native/package.json`.
+
+## Documentation
+
+- [`docs/SPEC.md`](docs/SPEC.md) - Product and UI specification
+- [`docs/ANALYSIS.md`](docs/ANALYSIS.md) - End-to-end native analysis architecture
+- [`docs/BEATNET.md`](docs/BEATNET.md) - BPM pipeline internals and model notes
+- [`docs/KEY_DETECTION.md`](docs/KEY_DETECTION.md) - Key-analysis pipeline internals and API
+- [`packages/engine/README.md`](packages/engine/README.md) - Native engine package notes
 
 ## Project Structure
 
-```
+```text
 keyed/
 ├── apps/
-│   └── native/       # React Native mobile app
+│   └── native/          # Expo React Native app
+├── docs/                # Product and analysis docs
 ├── packages/
-│   └── config/       # Shared TypeScript configuration
-└── ...
+│   ├── config/          # Shared TypeScript config
+│   ├── db/              # Expo SQLite + Drizzle package
+│   └── engine/          # Native C++ analysis engine
+└── scripts/             # Engine test/model helper scripts
 ```
 
 ## Contributing
 
-Contributions are welcome. Please open an issue first to discuss what you'd like to change.
-
-1. Fork the repository
-2. Create your branch (`git checkout -b feature/your-feature`)
-3. Commit your changes
-4. Push to the branch
-5. Open a pull request
+1. Fork the repository.
+2. Create a branch from `master`.
+3. Make the change and add focused tests where behavior changes.
+4. Run `bun run check-types` and the relevant test command.
+5. Open a pull request with the behavior change and verification notes.
 
 ## License
 
-[MIT](LICENSE)
+This repository does not currently include a root `LICENSE` file. The `@keyed/engine` package metadata declares MIT.

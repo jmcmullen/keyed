@@ -15,6 +15,7 @@ import Animated, {
 import { StyleSheet } from "react-native-unistyles";
 import { Waveform } from "@/components/waveform";
 import { useEngine } from "@/hooks/use-engine";
+import { buttonText, shouldReset, statusText } from "@/lib/beatnet-state";
 import {
 	buildSave,
 	bpmConfidence as getBpmConfidence,
@@ -22,12 +23,6 @@ import {
 import { silenceTick } from "@/lib/silence-stop";
 import { tapClose, tapInit, tapNext } from "@/lib/tap-tempo";
 
-const STATUS_READY = "READY";
-const STATUS_ERROR = "ERROR";
-const STATUS_LOADING = "LOADING";
-const STATUS_LISTENING = "LISTENING";
-const STATUS_ANALYZING = "ANALYZING";
-const STATUS_WORKING = "WORKING";
 const WAVEFORM_HEIGHT = 200;
 const SILENCE_GATE = 0.01;
 const SILENCE_MS = 5_000;
@@ -158,7 +153,7 @@ export default function BeatNetTab() {
 			await handleStop();
 			return;
 		}
-		if (status === "detected" || status === "error") {
+		if (shouldReset(status)) {
 			reset();
 		}
 		setWaveformResetKey((k) => k + 1);
@@ -166,24 +161,6 @@ export default function BeatNetTab() {
 		if (!started) return;
 		silenceRef.current = null;
 		setStartedAt(Date.now());
-	};
-
-	const getButtonText = () => {
-		if (status === "initializing") return STATUS_LOADING;
-		if (isBusy) return "WAIT";
-		if (isListening) return "STOP";
-		return "START";
-	};
-
-	const getStatusText = () => {
-		if (isBusy) return STATUS_WORKING;
-		if (isListening) {
-			if (!result?.bpm && !key) return STATUS_LISTENING;
-			return STATUS_ANALYZING;
-		}
-		if (status === "initializing") return STATUS_LOADING;
-		if (status === "error") return STATUS_ERROR;
-		return STATUS_READY;
 	};
 
 	const manual = tap.active || (!result?.bpm && tap.bpm);
@@ -206,7 +183,9 @@ export default function BeatNetTab() {
 					<Animated.View
 						style={[styles.statusDot(status, isListening), dotAnimatedStyle]}
 					/>
-					<Text style={styles.statusText}>{getStatusText()}</Text>
+					<Text style={styles.statusText}>
+						{statusText(status, isBusy, isListening, result, key)}
+					</Text>
 				</View>
 			</View>
 
@@ -283,7 +262,7 @@ export default function BeatNetTab() {
 									isListening && styles.buttonTextActive,
 								]}
 							>
-								{getButtonText()}
+								{buttonText(status, isBusy, isListening)}
 							</Text>
 						</View>
 					</Pressable>

@@ -56,6 +56,11 @@ export interface UseEngineReturn {
 const RESULT_UPDATE_INTERVAL = 100;
 const BPM_POLL_INTERVAL = 500;
 const KEY_EVENT_INTERVAL = 100;
+const BANDS_INIT = {
+	low: 0.33,
+	mid: 0.33,
+	high: 0.34,
+} as const;
 
 export function useEngine(options: UseEngineOptions = {}): UseEngineReturn {
 	const { onWaveform } = options;
@@ -70,11 +75,8 @@ export function useEngine(options: UseEngineOptions = {}): UseEngineReturn {
 	const [beatActivation, setBeatActivation] = useState(0);
 	const [downbeatActivation, setDownbeatActivation] = useState(0);
 	const [waveformSamples, setWaveformSamples] = useState<number[]>([]);
-	const [waveformBands, setWaveformBands] = useState<FrequencyBands>({
-		low: 0.33,
-		mid: 0.33,
-		high: 0.34,
-	});
+	const [waveformBands, setWaveformBands] =
+		useState<FrequencyBands>(BANDS_INIT);
 	const [audioLevel, setAudioLevel] = useState(0);
 
 	const latestBpmRef = useRef<number>(0);
@@ -97,6 +99,20 @@ export function useEngine(options: UseEngineOptions = {}): UseEngineReturn {
 	const unlock = useCallback(() => {
 		busyRef.current = false;
 		setIsBusy(false);
+	}, []);
+
+	const clear = useCallback(() => {
+		latestBpmRef.current = 0;
+		lastResultUpdateRef.current = 0;
+		lastBpmPollRef.current = 0;
+		lastKeyUpdateRef.current = 0;
+		setResult(null);
+		setKey(null);
+		setBeatActivation(0);
+		setDownbeatActivation(0);
+		setWaveformSamples([]);
+		setWaveformBands(BANDS_INIT);
+		setAudioLevel(0);
 	}, []);
 
 	useEffect(() => {
@@ -272,17 +288,7 @@ export function useEngine(options: UseEngineOptions = {}): UseEngineReturn {
 				return false;
 			}
 
-			setResult(null);
-			setKey(null);
-			latestBpmRef.current = 0;
-			lastResultUpdateRef.current = 0;
-			lastBpmPollRef.current = 0;
-			lastKeyUpdateRef.current = 0;
-			setBeatActivation(0);
-			setDownbeatActivation(0);
-			setWaveformSamples([]);
-			setWaveformBands({ low: 0.33, mid: 0.33, high: 0.34 });
-			setAudioLevel(0);
+			clear();
 
 			const startResult = await EngineModule.startRecording(true)
 				.then((started) => ({ started, err: "" }))
@@ -311,7 +317,7 @@ export function useEngine(options: UseEngineOptions = {}): UseEngineReturn {
 		} finally {
 			unlock();
 		}
-	}, [lock, unlock]);
+	}, [clear, lock, unlock]);
 
 	const stopListening = useCallback(() => {
 		if (busyRef.current || !isListeningRef.current) {
@@ -340,21 +346,11 @@ export function useEngine(options: UseEngineOptions = {}): UseEngineReturn {
 		isListeningRef.current = false;
 		EngineModule.stopRecording();
 		EngineModule.reset();
-		latestBpmRef.current = 0;
-		lastResultUpdateRef.current = 0;
-		lastBpmPollRef.current = 0;
-		lastKeyUpdateRef.current = 0;
+		clear();
 		setStatus("idle");
-		setResult(null);
-		setKey(null);
 		setIsListening(false);
 		setError(null);
-		setBeatActivation(0);
-		setDownbeatActivation(0);
-		setWaveformSamples([]);
-		setWaveformBands({ low: 0.33, mid: 0.33, high: 0.34 });
-		setAudioLevel(0);
-	}, []);
+	}, [clear]);
 
 	return {
 		status,

@@ -27,6 +27,16 @@ describe("tapNext", () => {
 		state = tapNext(state, 1_100);
 		expect(state.gaps.length).toBe(0);
 	});
+
+	it("supports taps starting at epoch zero", () => {
+		let state = tapInit();
+		state = tapNext(state, 0);
+		state = tapNext(state, 500);
+		expect(state.bpm === null).toBe(false);
+		if (state.bpm) {
+			expect(Math.round(state.bpm)).toBe(120);
+		}
+	});
 });
 
 describe("tapClose", () => {

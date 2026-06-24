@@ -20,7 +20,7 @@ export function tapInit(): TapState {
 
 export function tapNext(state: TapState, now: number): TapState {
 	let gaps = state.gaps;
-	if (state.last) {
+	if (state.last !== null) {
 		const gap = now - state.last;
 		if (gap > TAP_MAX_MS) {
 			gaps = [];

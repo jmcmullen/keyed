@@ -46,6 +46,7 @@ coverage
 # Misc
 *.tgz
 .cache
+external/
 tmp
 temp
 

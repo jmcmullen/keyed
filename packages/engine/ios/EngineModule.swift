@@ -6,7 +6,14 @@ public class EngineModule: Module {
 	private lazy var bridge: EngineBridge = EngineBridge.shared()
 	private var audioEngine: AVAudioEngine?
 	private var isRecordingAudio = false
+	private let stateQ = DispatchQueue(label: "services.session.keyed.engine.state")
 	private var enableWaveformEvents = false
+	private let sampleQ = DispatchQueue(label: "services.session.keyed.engine.samples")
+	private let procQ = DispatchQueue(label: "services.session.keyed.engine.proc")
+	private var sampleList: [[Float]] = []
+	private var isDraining = false
+	private var dropCount = 0
+	private let sampleLimit = 24
 
 	private let waveformBufferSize = 128
 	private let waveformInputSize = 256
@@ -37,6 +44,16 @@ public class EngineModule: Module {
 		#if DEBUG
 		print("[EngineModule] \(message)")
 		#endif
+	}
+
+	private func isRecording() -> Bool {
+		stateQ.sync { isRecordingAudio }
+	}
+
+	private func setRecording(_ next: Bool) {
+		stateQ.sync {
+			isRecordingAudio = next
+		}
 	}
 
 	/// Find a resource in the EngineResources bundle (handles both dev and release builds)
@@ -176,7 +193,7 @@ public class EngineModule: Module {
 		}
 
 		AsyncFunction("startRecording") { (enableWaveform: Bool, promise: Promise) in
-			if self.isRecordingAudio {
+			if self.isRecording() {
 				promise.resolve(true)
 				return
 			}
@@ -201,8 +218,8 @@ public class EngineModule: Module {
 		}
 
 		Function("stopRecording") { self.stopAudioEngine() }
-		Function("isRecording") { self.isRecordingAudio }
-	}
+		Function("isRecording") { self.isRecording() }
+		}
 
 	// MARK: - Audio Engine
 
@@ -215,7 +232,7 @@ public class EngineModule: Module {
 	}
 
 	private func startAudioEngine() throws {
-		if isRecordingAudio {
+		if isRecording() {
 			return
 		}
 
@@ -248,17 +265,21 @@ public class EngineModule: Module {
 		waveformWriteIndex = 0
 		waveformSamplesAccumulated = 0
 		waveformEmitCount = 0
-		processCallCount = 0
 		recordingStartTime = Date().timeIntervalSince1970
 		lastStateEmitTime = 0
 		lastWaveformEmitTime = 0
+		sampleQ.sync {
+			sampleList.removeAll(keepingCapacity: true)
+			isDraining = false
+			dropCount = 0
+		}
 
 		inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: inputFormat) { [weak self] buffer, _ in
 			guard let self = self else { return }
 
 			if inputFormat.sampleRate == 44100 {
 				guard let data = buffer.floatChannelData?[0] else { return }
-				self.processAudioSamples(data, count: Int(buffer.frameLength))
+				self.enqueueAudio(data, count: Int(buffer.frameLength))
 				return
 			}
 			guard let converter = converter, let conversionBuffer = conversionBuffer else {
@@ -269,25 +290,86 @@ public class EngineModule: Module {
 				return
 			}
 			guard let data = conversionBuffer.floatChannelData?[0] else { return }
-			self.processAudioSamples(data, count: sampleCount)
+			self.enqueueAudio(data, count: sampleCount)
 		}
 
 		audioEngine.prepare()
 		try audioEngine.start()
-		isRecordingAudio = true
+		setRecording(true)
 		debugLog("Audio engine started at \(inputFormat.sampleRate)Hz -> 44100Hz, buffer: \(bufferSize), waveform: \(enableWaveformEvents)")
 	}
 
 	private func stopAudioEngine() {
+		setRecording(false)
 		audioEngine?.inputNode.removeTap(onBus: 0)
 		audioEngine?.stop()
 		audioEngine = nil
-		isRecordingAudio = false
+		sampleQ.sync {
+			sampleList.removeAll(keepingCapacity: true)
+			isDraining = false
+		}
+		procQ.sync {}
 		lastStateEmitTime = 0
 		lastWaveformEmitTime = 0
 
 		try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
 		debugLog("Audio engine stopped")
+	}
+
+	private func enqueueAudio(_ samples: UnsafePointer<Float>, count: Int) {
+		if count <= 0 {
+			return
+		}
+		let chunk = Array(UnsafeBufferPointer(start: samples, count: count))
+		sampleQ.async {
+			if self.sampleList.count >= self.sampleLimit {
+				let over = self.sampleList.count - self.sampleLimit + 1
+				self.sampleList.removeFirst(over)
+				self.dropCount += over
+				if self.dropCount % 10 == 0 {
+					self.debugLog("Dropped \(self.dropCount) buffered audio chunks")
+				}
+			}
+			self.sampleList.append(chunk)
+			if self.isDraining {
+				return
+			}
+			self.isDraining = true
+			self.procQ.async { [weak self] in
+				self?.drainAudio()
+			}
+		}
+	}
+
+	private func popAudio() -> [Float]? {
+		sampleQ.sync {
+			if sampleList.isEmpty {
+				isDraining = false
+				return nil
+			}
+			return sampleList.removeFirst()
+		}
+	}
+
+	private func drainAudio() {
+		while true {
+			if !isRecording() {
+				sampleQ.sync {
+					sampleList.removeAll(keepingCapacity: true)
+					isDraining = false
+				}
+				return
+			}
+			guard let chunk = popAudio() else {
+				return
+			}
+			chunk.withUnsafeBufferPointer { ptr in
+				guard let base = ptr.baseAddress else {
+					return
+				}
+				processAudioSamples(base, count: ptr.count)
+			}
+		}
 	}
 
 	private func computeFrequencyBands(_ samples: [Float]) -> (low: Float, mid: Float, high: Float) {
@@ -367,18 +449,16 @@ public class EngineModule: Module {
 		return Int(outputBuffer.frameLength)
 	}
 
-	private var processCallCount = 0
 	private var recordingStartTime: TimeInterval = 0
 
 	private func processAudioSamples(_ samples: UnsafePointer<Float>, count: Int) {
-		processCallCount += 1
 		guard count > 0 else { return }
 
 		var beatActivation: Float = 0
 		var downbeatActivation: Float = 0
 		let hasState = bridge.processAudioBuffer(
 			samples,
-			sampleCount: count,
+			sampleCount: UInt(count),
 			beatActivation: &beatActivation,
 			downbeatActivation: &downbeatActivation
 		)

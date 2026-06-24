@@ -21,4 +21,9 @@ describe("silenceTick", () => {
 		const out = silenceTick(false, 0, 10_000, 9_000, 0.01, 5_000);
 		expect(out).toEqual({ since: null, stop: false });
 	});
+
+	it("keeps zero timestamp silence markers", () => {
+		const out = silenceTick(true, 0.001, 4_000, 0, 0.01, 5_000);
+		expect(out).toEqual({ since: 0, stop: false });
+	});
 });

@@ -83,4 +83,22 @@ describe("buildSave", () => {
 			);
 		}
 	});
+
+	it("accepts epoch start timestamps", () => {
+		const result = buildSave({
+			now: 8_000,
+			startedAt: 0,
+			result: {
+				bpm: 124.8,
+				frameCount: 150,
+				beatActivation: 0.4,
+				downbeatActivation: 0.2,
+			},
+			key: null,
+		});
+		expect(result.ok).toBe(true);
+		if (result.ok) {
+			expect(result.row.duration).toBe(8);
+		}
+	});
 });

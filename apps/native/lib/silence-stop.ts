@@ -17,7 +17,7 @@ export function silenceTick(
 	if (level > gate) {
 		return { since: null, stop: false };
 	}
-	if (!since) {
+	if (since === null) {
 		return { since: now, stop: false };
 	}
 	if (now - since < limit) {
