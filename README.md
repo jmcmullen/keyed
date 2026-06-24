@@ -6,9 +6,7 @@ Keyed detects the BPM and musical key of music playing around you, fully on devi
 
 ## Demo
 
-<video controls title="Keyed demo" width="320">
-	<source src="docs/keyed.mov" type="video/quicktime">
-</video>
+<img src="docs/keyed.gif" alt="Keyed app demo" width="320">
 
 ## Features
 
