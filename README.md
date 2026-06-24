@@ -1,68 +1,97 @@
 # Keyed
 
-**On-device BPM and key detection for DJs.**
+**On-device BPM and key detection for DJs cataloging vinyl.**
 
-Keyed listens through the microphone and returns live BPM, musical key, Camelot code, and confidence readings without sending audio off the device. It is built for DJs checking tempo and harmonic compatibility while mixing vinyl, CDJs, or digital sources.
+Keyed is a mobile app that listens through the phone microphone and estimates BPM, musical key, Camelot code, and confidence without uploading audio or relying on a backend. I built it to catalog a vinyl collection the way DJ software catalogs digital files: play a record, capture its tempo/key, and keep the result available for mixing later.
 
-## Demo
+The app is Expo React Native on the surface, but the hard part is a custom native C++ analysis engine that keeps microphone buffers, feature extraction, and ONNX inference off the JavaScript thread.
 
-<img src="docs/keyed.gif" alt="Keyed app demo" width="320">
+<img src="apps/native/docs/keyed.gif" alt="Keyed app demo" width="320">
 
-## Highlights
+## What it does
 
-- Real-time BPM detection with decimal output, confidence scoring, and half/double-time correction for DJ tempo ranges
-- Real-time key detection with standard notation and Camelot codes
-- Beat-reactive visual UI driven by native audio analysis events
-- Local detection history backed by SQLite
-- Fully offline audio processing
-- Shared native C++ engine with iOS and Android bridges
+- **Catalog records.** Play through vinyl, save BPM/key/Camelot results locally, and label sleeves for fast harmonic mixing at a gig.
+- **Read live audio.** Point it at vinyl, CDJs, or any room audio to estimate the current track's tempo and key.
+- **Work offline.** Audio stays on device. There is no account, upload step, or network dependency.
+
+## Why it is technically interesting
+
+- **Native real-time audio path.** The C++ engine owns capture, buffering, DSP, and inference. React Native receives throttled state events instead of raw audio buffers.
+- **Fine-tuned BPM model.** The BPM path uses BeatNet exported to ONNX, retrained on electronic music with phone-mic augmentation and a differentiable autocorrelation tempo loss.
+- **DJ-aware stabilization.** Autocorrelation post-processing and half/double-time correction keep tempo estimates in the range DJs actually mix in, instead of bouncing between values like 87 and 174.
+- **Parallel key detection.** A CQT + CNN pipeline estimates musical key and Camelot code from the same native audio stream.
+- **Local-first persistence.** Detection history is stored with Drizzle and Expo SQLite so the app becomes a searchable catalog, not just a live meter.
 
 ## Architecture
 
-Keyed is a Bun monorepo with an Expo React Native app and a native analysis engine.
+A Bun monorepo: an Expo React Native app on a shared native analysis engine.
 
 ```text
 apps/native       Expo Router mobile app
 packages/engine   Expo native module, C++ DSP, ONNX inference, iOS/Android bridges
 packages/db       Drizzle schema and Expo SQLite hooks
-packages/config   Shared TypeScript configuration
-docs              Product and engine notes
+packages/config   Shared configuration files
 ```
 
-The native engine owns the real-time audio path so raw microphone buffers do not cross the JavaScript bridge.
+Three analysis pipelines run off the JS thread:
 
-- BPM pipeline: microphone audio -> resampling -> mel features -> BeatNet ONNX -> autocorrelation tempo stabilization -> BPM confidence
-- Key pipeline: microphone audio -> CQT features -> MusicalKeyCNN ONNX -> key smoothing -> notation, Camelot code, and confidence
-- Visual pipeline: native beat/downbeat activations -> throttled app events -> Skia/Reanimated beat aura
-- Persistence: detections are saved locally with Drizzle and Expo SQLite
+```mermaid
+flowchart LR
+	Mic[Phone microphone] --> Capture
 
-## Tech Stack
+	subgraph Engine[Native C++ engine]
+		Capture[Audio capture + buffers]
+		Capture --> BPM[BeatNet ONNX + autocorrelation]
+		Capture --> Key[CQT + MusicalKeyCNN ONNX]
 
-- Expo 54, React Native 0.81, React 19, Expo Router
-- TypeScript, Bun workspaces, Turborepo
-- React Native Reanimated, Skia, and `react-native-unistyles`
-- Native C++ DSP and ONNX Runtime
-- Drizzle ORM with Expo SQLite
+		BPM --> Tempo[BPM + confidence]
+		BPM --> Beat[Beat/downbeat activations]
+		Key --> Harmony[Key + Camelot + confidence]
 
-## Local Setup
+		Tempo --> Events[Throttled native events]
+		Harmony --> Events
+		Beat --> Events
+	end
+
+	Events --> App[React Native app]
+	App --> DB[Drizzle + Expo SQLite]
+```
+
+## Limitations
+
+- BPM is optimized for DJ/electronic music with clear rhythmic structure.
+- Key detection is a rolling estimate; it is not instant and becomes more stable with longer listening windows.
+- Phone microphones and room acoustics vary, so confidence is shown as part of the result instead of hiding uncertainty.
+
+## Deep dives
+
+- [Engine architecture](packages/engine/docs/architecture.md)
+- [BeatNet BPM implementation](packages/engine/docs/beatnet.md)
+- [Key detection implementation](packages/engine/docs/key-detection.md)
+- [Native engine module](packages/engine/README.md)
+
+## Stack
+
+React Native 0.81 · Expo 54 · React 19 · TypeScript · Bun · Turborepo · Reanimated · Skia · react-native-unistyles · C++ DSP · ONNX Runtime · Drizzle + Expo SQLite
+
+## Running locally
 
 ```bash
 git clone https://github.com/jmcmullen/keyed.git
 cd keyed
 bun install
+bun run dev
 ```
 
-Native development requires the usual iOS or Android toolchain for the target platform.
+Requires the standard iOS or Android toolchain.
 
 ## Verification
 
 ```bash
-bun run check
-bun run check-types
-cd apps/native && bun test tests
-bun run test:native
+bun run check   # Biome lint/format + Turbo type checks
+bun run test    # native app Bun tests + engine C++ tests
 ```
 
 ## License
 
-Keyed is licensed under the [MIT License](LICENSE).
+MIT, see [LICENSE](LICENSE). Built by Jay McMullen.

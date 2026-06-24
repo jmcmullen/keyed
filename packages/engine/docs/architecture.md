@@ -31,7 +31,7 @@ Operational notes:
 - BPM becomes reliable after roughly `getFrameCount() >= 100` (~2 seconds)
 - Current value is read via `getBpm()`
 
-Deep dive: `docs/BEATNET.md`
+Deep dive: [beatnet.md](beatnet.md)
 
 ### Key Analysis (MusicalKeyCNN + CQT)
 
@@ -49,7 +49,7 @@ Operational notes:
 - Inference uses a rolling 4-minute CQT window (1200 frames at 5 FPS) to keep memory bounded.
 - Native layer emits `onKey` when notation changes or confidence changes meaningfully
 
-Deep dive: `docs/KEY_DETECTION.md`
+Deep dive: [key-detection.md](key-detection.md)
 
 ## Module Lifecycle
 

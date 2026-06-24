@@ -1,13 +1,14 @@
 {
 	"name": "@keyed/engine",
 	"version": "0.1.0",
-	"description": "Native audio processing engine for beat detection",
+	"description": "Native BPM and key detection engine for React Native",
 	"main": "src/index.ts",
 	"types": "src/index.ts",
 	"scripts": {
 		"build": "expo-module build",
 		"check-types": "tsc --noEmit",
-		"clean": "expo-module clean"
+		"clean": "expo-module clean",
+		"test": "cd tests && cmake -B build && cmake --build build && ./build/engine_tests"
 	},
 	"keywords": [
 		"react-native",

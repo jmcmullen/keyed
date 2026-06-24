@@ -9,7 +9,7 @@ This engine provides real-time beat/downbeat tracking and BPM detection. It buil
 The pipeline: audio (22050 Hz) → 272-dim mel features → neural network → beat/downbeat activations → autocorrelation → BPM.
 
 **Key Features:**
-- Near-perfect BPM accuracy (100% on test set, 0.00 average error)
+- 0.07 BPM average error on an internal Beatport EDM evaluation set
 - Optimized for DJ music (75-165 BPM with octave correction)
 - Real-time processing at 50 FPS (20ms frames)
 - Hardware acceleration (CoreML on iOS, NNAPI on Android)
@@ -73,7 +73,7 @@ DJ music typically falls in the 75-165 BPM range. If the detected BPM falls outs
 
 ## Fine-tuned Model
 
-We use a fine-tuned BeatNet model that achieves near-perfect accuracy on DJ/electronic music.
+We use a fine-tuned BeatNet model that improves tempo accuracy on DJ/electronic music.
 
 | Model | File | Use Case |
 |-------|------|----------|
@@ -223,7 +223,7 @@ Unit tests validate each component against Python reference implementations:
 | ONNX Model | < 5% per frame vs Python |
 | E2E Pipeline | ±1 BPM |
 
-Batch testing on 15 EDM tracks achieved 100% accuracy (0.00 average BPM error).
+A 15-track EDM smoke batch landed within ±1 BPM for every track. The headline comparison above uses average BPM error on the shared evaluation set.
 
 ---
 

@@ -15,17 +15,16 @@
 - `packages/config` - shared TypeScript config.
 
 ## Commands
-- `bun run check` - lint and format with Biome.
-- `bun run check-types` - typecheck all packages.
+- `bun run check` - lint and format with Biome, then run available package typechecks.
+- `bun run check-types` - run available package typechecks through Turbo.
 - `bun run dev` - run all apps.
 - `bun run dev:native` - run native app only.
-- `cd apps/native && bun test tests` - run native app tests.
+- `bun run test` - run workspace test tasks.
 - `bun run test:native` - build and run C++ engine tests.
 
 ## Verification
-- When code changes, run `bun run check` and `bun run check-types` before finishing.
-- For changes under `apps/native`, run `cd apps/native && bun test tests`.
-- For changes under `packages/engine`, run `bun run test:native`.
+- When code changes, run `bun run check` before finishing.
+- Run `bun run test` for changes that affect behavior, tests, app code, db code, or engine code.
 - If a required check cannot run, report the command, the failure reason, and the risk.
 - Because `bun run check` writes formatting changes, inspect the dirty worktree first; if unrelated dirty files make the broad command unsafe, run the narrowest safe Biome command and report the skipped full check.
 
@@ -41,14 +40,14 @@
 
 ## Biome
 - Biome is the source of truth for formatting, import organization, and lint rules.
-- Respect enforced rules including `useSortedClasses`, `noParameterAssign`, `useAsConstAssertion`, `useSelfClosingElements`, `useDefaultParameterLast`, `useEnumInitializers`, `useSingleVarDeclarator`, `noUnusedTemplateLiteral`, `useNumberNamespace`, `noInferrableTypes`, and `noUselessElse`.
+- Respect configured rules and warnings including `useSortedClasses`, `noParameterAssign`, `useAsConstAssertion`, `useSelfClosingElements`, `useDefaultParameterLast`, `useEnumInitializers`, `useSingleVarDeclarator`, `noUnusedTemplateLiteral`, `useNumberNamespace`, `noInferrableTypes`, and `noUselessElse`.
 
 ## General Principles
 - Keep things in one function unless a helper is clearly reusable or reduces meaningful complexity.
 - Avoid `try/catch` unless the code can handle or improve the error.
 - Avoid `any`.
-- Use Bun APIs when practical, for example `Bun.file()`.
-- Prefer functional array methods (`flatMap`, `filter`, `map`) over `for` loops when they stay readable; use type guards on `filter` to preserve downstream inference.
+- Use Bun APIs only in Bun-executed tooling, scripts, tests, and repo automation. Do not use Bun globals in React Native app/runtime code.
+- Prefer functional array methods (`flatMap`, `filter`, `map`) over `for` loops for ordinary collection transforms; use loops for performance-sensitive numeric code or mutation-heavy logic.
 - Prefer early returns over nested conditionals.
 
 ## Naming
@@ -73,11 +72,11 @@ function prepareJournal(dir: string) {}
 
 ```ts
 // Good
-const journal = await Bun.file(path.join(dir, "journal.json")).json()
+const journal = await loadJournal(path.join(dir, "journal.json"))
 
 // Bad
 const journalPath = path.join(dir, "journal.json")
-const journal = await Bun.file(journalPath).json()
+const journal = await loadJournal(journalPath)
 ```
 
 ## Destructuring
@@ -100,7 +99,7 @@ else foo = 2
 ```
 
 ## Control Flow
-- Avoid `else` statements. Prefer early returns.
+- Prefer early returns over `else` when the branch already exits. Use `else if` or symmetric branches when they are clearer.
 
 ```ts
 function foo() {
@@ -120,5 +119,5 @@ function foo() {
 - Prefer Expo config, module code, or prebuild inputs over generated native edits.
 
 ## Conventions
-- No backwards compatibility unless explicitly requested; refactor to a single clean implementation.
+- Avoid compatibility shims in internal code unless explicitly requested. Preserve persisted data, migrations, native module contracts, and public exports unless the task is explicitly breaking.
 - Styling: `react-native-unistyles` with theme callbacks.

@@ -10,6 +10,13 @@ Native real-time BPM and key detection engine used by the Keyed app.
 - `src/`: TypeScript module interface consumed by React Native
 - `tests/`: C++ unit/integration tests (Catch2)
 - `models/`: ONNX model files bundled into native builds
+- `docs/`: architecture, BPM, and key detection notes
+
+## Docs
+
+- [Architecture](docs/architecture.md)
+- [BeatNet BPM implementation](docs/beatnet.md)
+- [Key detection implementation](docs/key-detection.md)
 
 ## Local development
 

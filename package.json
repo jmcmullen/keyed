@@ -7,12 +7,14 @@
 		"packages/*"
 	],
 	"scripts": {
-		"check": "biome check --write .",
-		"dev": "turbo dev",
-		"build": "turbo build",
-		"check-types": "turbo check-types",
+		"check": "bun run check:format && bun run check-types",
+		"check:format": "biome check --write .",
+		"dev": "turbo run dev",
+		"build": "turbo run build",
+		"check-types": "turbo run check-types",
 		"dev:native": "turbo -F native dev",
-		"test:native": "cd packages/engine/tests && cmake -B build && cmake --build build && ./build/engine_tests",
+		"test": "turbo run test",
+		"test:native": "turbo run test --filter=@keyed/engine --force",
 		"test:native:build": "cd packages/engine/tests && cmake -B build && cmake --build build",
 		"test:native:run": "cd packages/engine/tests && ./build/engine_tests",
 		"test:native:golden": "python scripts/generate-golden-files.py"
