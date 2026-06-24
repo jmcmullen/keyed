@@ -7,23 +7,19 @@
 namespace engine {
 
 /**
- * FFT - Platform-abstracted Fast Fourier Transform
+ * FFT - real-to-complex transform for audio processing.
  *
- * iOS: Uses Apple Accelerate framework (vDSP)
- * Android: Uses KissFFT
- *
- * Computes real-to-complex FFT for audio processing.
+ * Uses pocketfft, which supports arbitrary FFT sizes.
  */
 class FFT {
 public:
     /**
      * Create FFT processor for given size
-     * @param size FFT size (must be power of 2 for KissFFT, any for vDSP)
+     * @param size FFT size
      */
     explicit FFT(size_t size);
     ~FFT();
 
-    // Non-copyable
     FFT(const FFT&) = delete;
     FFT& operator=(const FFT&) = delete;
 
@@ -54,7 +50,7 @@ public:
 private:
     size_t size_;
 
-    // Platform-specific implementation pointer
+    // pocketfft implementation state
     void* impl_;
 };
 

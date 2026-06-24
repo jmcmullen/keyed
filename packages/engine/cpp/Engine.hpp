@@ -4,6 +4,7 @@
 #include "CqtExtractor.hpp"
 #include "OnnxModel.hpp"
 #include "KeyModel.hpp"
+#include "KeySmoother.hpp"
 #include "Resampler.hpp"
 #include "AutocorrBpm.hpp"
 #include <memory>
@@ -19,7 +20,7 @@ namespace engine {
  *   1. loadModels() - load both ONNX models (BeatNet + MusicalKeyCNN)
  *   2. processAudio() - feed audio samples at 44100Hz
  *   3. getBpm() - get detected BPM (after ~2 seconds of audio)
- *   4. getKey() - get detected key (after ~20 seconds of audio)
+ *   4. getKey() - get detected key (provisional after ~5 seconds of audio)
  *
  * Audio Pipeline:
  *   44100 Hz audio ─┬─> CQT extractor ─> KeyModel ─> Key detection
@@ -31,7 +32,6 @@ public:
 	Engine();
 	~Engine();
 
-	// Non-copyable
 	Engine(const Engine&) = delete;
 	Engine& operator=(const Engine&) = delete;
 
@@ -40,9 +40,7 @@ public:
 	 */
 	void reset();
 
-	// =========================================================================
 	// BPM Detection (BeatNet)
-	// =========================================================================
 
 	/**
 	 * Load BeatNet ONNX model
@@ -75,13 +73,16 @@ public:
 	float getBpm() const;
 
 	/**
+	 * Get BPM confidence (0-1) based on tempo peak clarity and stability
+	 */
+	float getBpmConfidence() const;
+
+	/**
 	 * Get number of BPM frames processed
 	 */
 	size_t getFrameCount() const;
 
-	// =========================================================================
 	// Key Detection (MusicalKeyCNN)
-	// =========================================================================
 
 	/**
 	 * Load MusicalKeyCNN ONNX model
@@ -111,7 +112,7 @@ public:
 	};
 
 	/**
-	 * Get detected key (invalid if not enough data yet, ~20 seconds needed)
+	 * Get detected key (invalid if not enough data yet, provisional after ~5 seconds)
 	 */
 	KeyResult getKey() const;
 
@@ -120,9 +121,7 @@ public:
 	 */
 	size_t getKeyFrameCount() const;
 
-	// =========================================================================
 	// Audio Processing
-	// =========================================================================
 
 	/**
 	 * Process audio at 44100 Hz (native sample rate)
@@ -152,15 +151,21 @@ public:
 	static constexpr int FEATURE_DIM = MelConfig::MODEL_INPUT_DIM;
 	static constexpr float BPM_FPS = 50.0f;
 	static constexpr float KEY_FPS = 5.0f;
-	static constexpr int KEY_MIN_FRAMES = 100;         // Minimum frames for first inference (~20 sec)
-	static constexpr int KEY_INFERENCE_INTERVAL = 25;  // Run inference every N new frames (~5 sec)
+	static constexpr int KEY_FAST_FRAMES = 25;         // Fast provisional window (~5 sec)
+	static constexpr int KEY_LIVE_FRAMES = 50;         // Primary live window (~10 sec)
+	static constexpr int KEY_STABLE_FRAMES = 100;      // Stability window (~20 sec)
+	static constexpr int KEY_MIN_FRAMES = KEY_FAST_FRAMES;
+	static constexpr int KEY_INFERENCE_INTERVAL = 5;   // Run inference every N new frames (~1 sec)
 	static constexpr int KEY_MAX_FRAMES = 1200;        // Keep last 4 minutes at 5 FPS
 
 private:
 	static constexpr int MAX_CQT_FRAMES_PER_PUSH = 20;
+	static constexpr int MAX_CQT_SAMPLES_PER_PUSH =
+		CqtConfig::HOP_LENGTH * MAX_CQT_FRAMES_PER_PUSH;
 
-	// Run key inference on accumulated CQT frames
-	void runKeyInference();
+	bool copyLatestCqtFrames(int frames);
+	void runKeyInference(int frames, KeyWindow window);
+	void runKeyInferences();
 
 	// BPM detection
 	std::unique_ptr<StreamingMelExtractor> melExtractor_;
@@ -173,11 +178,12 @@ private:
 	std::unique_ptr<KeyModel> keyModel_;
 	std::vector<float> cqtBuffer_;            // Ring buffer [KEY_MAX_FRAMES][N_BINS]
 	std::vector<float> cqtScratch_;           // Scratch for CQT extractor output
-	std::vector<float> cqtInferenceBuffer_;   // Contiguous window for inferVariable
+	std::vector<float> cqtInferenceBuffer_;   // Latest contiguous window for inferVariable
 	size_t cqtHead_ = 0;                      // Next write frame in cqtBuffer_
 	size_t cqtFrameCount_ = 0;                // Total frames processed since reset
 	size_t cqtWindowFrameCount_ = 0;          // Frames currently available in cqtBuffer_
 	size_t cqtFramesSinceInference_ = 0;      // Frames since last inference
+	KeySmoother keySmoother_;
 	KeyResult currentKey_;                    // Latest key detection result
 	int keyInferenceCount_ = 0;               // Number of inferences performed
 

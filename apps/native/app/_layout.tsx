@@ -1,36 +1,29 @@
 import { DbProvider } from "@keyed/db";
 import { Stack } from "expo-router";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { StyleSheet, useUnistyles } from "react-native-unistyles";
+import { SafeAreaProvider } from "react-native-safe-area-context";
+import { StyleSheet } from "react-native-unistyles";
 
 export const unstable_settings = {
-	initialRouteName: "(drawer)",
+	initialRouteName: "index",
 } as const;
 
 export default function RootLayout() {
-	const { theme } = useUnistyles();
-
 	return (
 		<GestureHandlerRootView style={styles.root}>
-			<DbProvider>
-				<Stack
-					screenOptions={{
-						headerStyle: {
-							backgroundColor: theme.colors.background,
-						},
-						headerTitleStyle: {
-							color: theme.colors.foreground,
-						},
-						headerTintColor: theme.colors.foreground,
-					}}
-				>
-					<Stack.Screen name="(drawer)" options={{ headerShown: false }} />
-					<Stack.Screen
-						name="modal"
-						options={{ title: "Modal", presentation: "modal" }}
-					/>
-				</Stack>
-			</DbProvider>
+			<SafeAreaProvider>
+				<DbProvider>
+					<Stack
+						screenOptions={{
+							headerShown: false,
+						}}
+					>
+						<Stack.Screen name="index" />
+						<Stack.Screen name="history" />
+						<Stack.Screen name="modal" options={{ presentation: "modal" }} />
+					</Stack>
+				</DbProvider>
+			</SafeAreaProvider>
 		</GestureHandlerRootView>
 	);
 }

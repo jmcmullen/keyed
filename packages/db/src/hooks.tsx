@@ -10,12 +10,11 @@ import {
 } from "react";
 import { Text, View } from "react-native";
 import migrations from "../drizzle/migrations";
-import { db } from "./client";
+import { db, resetDatabase } from "./client";
 import { type Detection, detections, type NewDetection } from "./schema";
 
 interface DbContextValue {
 	detections: Detection[];
-	error: string | null;
 	addDetection: (data: NewDetection) => Promise<void>;
 	deleteDetection: (id: string) => Promise<void>;
 	clearHistory: () => Promise<void>;
@@ -25,19 +24,40 @@ const DbContext = createContext<DbContextValue | null>(null);
 const LIMIT = 2_000;
 
 export function DbProvider({ children }: { children: React.ReactNode }) {
+	const [attempt, setAttempt] = useState(0);
+	const [wiped, setWiped] = useState(false);
+	const reset = useCallback(() => {
+		setWiped(true);
+		setAttempt((value) => value + 1);
+	}, []);
+
+	return (
+		<DbProviderAttempt key={attempt} wiped={wiped} reset={reset}>
+			{children}
+		</DbProviderAttempt>
+	);
+}
+
+function DbProviderAttempt({
+	children,
+	wiped,
+	reset,
+}: {
+	children: React.ReactNode;
+	wiped: boolean;
+	reset: () => void;
+}) {
 	const { success: isReady, error } = useMigrations(db, migrations);
 
-	if (error) {
-		return (
-			<View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-				<Text style={{ color: "#EF4444" }}>
-					Database error: {error.message}
-				</Text>
-			</View>
-		);
-	}
+	useEffect(() => {
+		if (!error) return;
+		console.error("[db] migration failed", error);
+		if (wiped) return;
+		resetDatabase();
+		reset();
+	}, [error, reset, wiped]);
 
-	if (!isReady) {
+	if (!isReady && !error) {
 		return (
 			<View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
 				<Text style={{ color: "#888888" }}>Loading...</Text>
@@ -45,48 +65,61 @@ export function DbProvider({ children }: { children: React.ReactNode }) {
 		);
 	}
 
-	return <DbProviderInner>{children}</DbProviderInner>;
+	if (error && !wiped) {
+		return (
+			<View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+				<Text style={{ color: "#888888" }}>Resetting database...</Text>
+			</View>
+		);
+	}
+
+	if (error) {
+		return (
+			<View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+				<Text style={{ color: "#ff453a" }}>Database setup failed</Text>
+			</View>
+		);
+	}
+
+	return <DbProviderInner recover={reset}>{children}</DbProviderInner>;
 }
 
-function DbProviderInner({ children }: { children: React.ReactNode }) {
+function DbProviderInner({
+	children,
+	recover,
+}: {
+	children: React.ReactNode;
+	recover: () => void;
+}) {
 	const [detectionsData, setDetectionsData] = useState<Detection[]>([]);
-	const [error, setError] = useState<string | null>(null);
 
-	const getErr = useCallback((value: unknown): string => {
-		if (value instanceof Error) {
-			return value.message;
-		}
-		return "Database action failed";
+	const log = useCallback((message: string, err: unknown): void => {
+		console.error(`[db] ${message}`, err);
 	}, []);
+
+	const fail = useCallback(
+		(message: string, err: unknown): void => {
+			log(message, err);
+			resetDatabase();
+			recover();
+		},
+		[log, recover],
+	);
 
 	const refetch = useCallback(async (): Promise<void> => {
 		const result = await db
 			.select()
 			.from(detections)
-			.orderBy(desc(detections.createdAt))
+			.orderBy(desc(detections.createdAt), desc(detections.id))
 			.limit(LIMIT);
-		setError(null);
 		setDetectionsData(result);
-	}, []);
-
-	const trim = useCallback(async (): Promise<void> => {
-		const stale = await db
-			.select({ id: detections.id })
-			.from(detections)
-			.orderBy(desc(detections.createdAt))
-			.offset(LIMIT);
-		if (stale.length === 0) {
-			return;
-		}
-		const ids = stale.map((item) => item.id);
-		await db.delete(detections).where(inArray(detections.id, ids));
 	}, []);
 
 	useEffect(() => {
 		void refetch().catch((err: unknown) => {
-			setError(getErr(err));
+			fail("refetch failed", err);
 		});
-	}, [refetch, getErr]);
+	}, [refetch, fail]);
 
 	const addDetection = useCallback(
 		async (newDetection: NewDetection): Promise<void> => {
@@ -94,35 +127,62 @@ function DbProviderInner({ children }: { children: React.ReactNode }) {
 				...newDetection,
 				id: randomUUID(),
 			};
-			await db.insert(detections).values(row);
-			await trim();
-			setError(null);
-			setDetectionsData((list) =>
-				[row, ...list.filter((item) => item.id !== row.id)]
-					.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-					.slice(0, LIMIT),
-			);
+			try {
+				db.transaction((tx) => {
+					tx.insert(detections).values(row).run();
+					const rows = tx
+						.select({ id: detections.id })
+						.from(detections)
+						.orderBy(desc(detections.createdAt), desc(detections.id))
+						.all();
+					const ids = rows.slice(LIMIT).map((item) => item.id);
+					if (ids.length === 0) return;
+					tx.delete(detections).where(inArray(detections.id, ids)).run();
+				});
+				setDetectionsData((list) =>
+					[row, ...list.filter((item) => item.id !== row.id)]
+						.sort((a, b) => {
+							const delta = b.createdAt.getTime() - a.createdAt.getTime();
+							if (delta !== 0) return delta;
+							return b.id.localeCompare(a.id);
+						})
+						.slice(0, LIMIT),
+				);
+			} catch (err: unknown) {
+				fail("add detection failed", err);
+				throw err;
+			}
 		},
-		[trim],
+		[fail],
 	);
 
-	const deleteDetection = useCallback(async (id: string): Promise<void> => {
-		await db.delete(detections).where(eq(detections.id, id));
-		setError(null);
-		setDetectionsData((list) => list.filter((item) => item.id !== id));
-	}, []);
+	const deleteDetection = useCallback(
+		async (id: string): Promise<void> => {
+			try {
+				await db.delete(detections).where(eq(detections.id, id));
+				setDetectionsData((list) => list.filter((item) => item.id !== id));
+			} catch (err: unknown) {
+				fail("delete detection failed", err);
+				throw err;
+			}
+		},
+		[fail],
+	);
 
 	const clearHistory = useCallback(async (): Promise<void> => {
-		await db.delete(detections);
-		setError(null);
-		setDetectionsData([]);
-	}, []);
+		try {
+			await db.delete(detections);
+			setDetectionsData([]);
+		} catch (err: unknown) {
+			fail("clear history failed", err);
+			throw err;
+		}
+	}, [fail]);
 
 	return (
 		<DbContext.Provider
 			value={{
 				detections: detectionsData,
-				error,
 				addDetection,
 				deleteDetection,
 				clearHistory,

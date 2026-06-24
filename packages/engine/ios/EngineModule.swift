@@ -6,14 +6,16 @@ public class EngineModule: Module {
 	private lazy var bridge: EngineBridge = EngineBridge.shared()
 	private var audioEngine: AVAudioEngine?
 	private var isRecordingAudio = false
+	private var graphConnected = false
+	private var sinkNode: AVAudioSinkNode?
 	private let stateQ = DispatchQueue(label: "services.session.keyed.engine.state")
 	private var enableWaveformEvents = false
-	private let sampleQ = DispatchQueue(label: "services.session.keyed.engine.samples")
 	private let procQ = DispatchQueue(label: "services.session.keyed.engine.proc")
-	private var sampleList: [[Float]] = []
-	private var isDraining = false
-	private var dropCount = 0
-	private let sampleLimit = 24
+	private let targetSampleRate = 44100.0
+	private lazy var inputBuffer = EngineAudioBuffer(capacity: 48000 * 10, targetSampleRate: targetSampleRate)
+	private let processBufferSize = 1024
+	private lazy var processBuffer = [Float](repeating: 0, count: processBufferSize)
+	private let drainInterval: TimeInterval = 0.005
 
 	private let waveformBufferSize = 128
 	private let waveformInputSize = 256
@@ -22,9 +24,16 @@ public class EngineModule: Module {
 	private var waveformSamplesAccumulated = 0
 	private var waveformEmitCount = 0
 	private let stateEmitInterval: TimeInterval = 1.0 / 20.0
+	private let visualEmitInterval: TimeInterval = 1.0 / 60.0
 	private let waveformEmitInterval: TimeInterval = 1.0 / 12.0
 	private var lastStateEmitTime: TimeInterval = 0
+	private var lastVisualEmitTime: TimeInterval = 0
 	private var lastWaveformEmitTime: TimeInterval = 0
+	private var inputLogCount = 0
+	private var processedChunkCount = 0
+	private var stateEmitCount = 0
+	private var visualEmitCount = 0
+	private var lastAudioStatsLogTime: TimeInterval = 0
 
 	// FFT setup for frequency analysis
 	private let fftSize = 256
@@ -44,6 +53,43 @@ public class EngineModule: Module {
 		#if DEBUG
 		print("[EngineModule] \(message)")
 		#endif
+	}
+
+	private func routeDescription(_ session: AVAudioSession) -> String {
+		let inputs = session.currentRoute.inputs
+			.map { "\($0.portName):\($0.portType.rawValue)" }
+			.joined(separator: ",")
+		let outputs = session.currentRoute.outputs
+			.map { "\($0.portName):\($0.portType.rawValue)" }
+			.joined(separator: ",")
+		return "inputs=[\(inputs)] outputs=[\(outputs)]"
+	}
+
+	private func sampleStats(_ samples: UnsafePointer<Float>, count: Int) -> (peak: Float, rms: Float) {
+		var peak: Float = 0
+		var sumSquares: Float = 0
+		for i in 0..<count {
+			let sample = samples[i]
+			let absVal = abs(sample)
+			if absVal > peak { peak = absVal }
+			sumSquares += sample * sample
+		}
+		return (peak, sqrt(sumSquares / Float(count)))
+	}
+
+	private func keepSpeakerRoute(_ session: AVAudioSession) {
+		let builtIn = session.currentRoute.outputs.contains {
+			$0.portType == .builtInReceiver || $0.portType == .builtInSpeaker
+		}
+		if !builtIn {
+			return
+		}
+		do {
+			try session.overrideOutputAudioPort(.speaker)
+			debugLog("Audio output forced to built-in speaker")
+		} catch {
+			debugLog("Failed to force speaker route: \(error)")
+		}
 	}
 
 	private func isRecording() -> Bool {
@@ -96,7 +142,7 @@ public class EngineModule: Module {
 		Constant("BPM_FPS") { 50 }
 		Constant("KEY_FPS") { 5 }
 
-		Events("onState", "onWaveform", "onKey")
+		Events("onState", "onWaveform", "onKey", "onVisual")
 
 		// MARK: - Engine Control
 
@@ -122,6 +168,7 @@ public class EngineModule: Module {
 
 		Function("isReady") { self.bridge.isReady() }
 		Function("getBpm") { Double(self.bridge.getBpm()) }
+		Function("getBpmConfidence") { Double(self.bridge.getBpmConfidence()) }
 		Function("getFrameCount") { Int(self.bridge.getFrameCount()) }
 
 		// MARK: - Key Detection (MusicalKeyCNN)
@@ -194,11 +241,13 @@ public class EngineModule: Module {
 
 		AsyncFunction("startRecording") { (enableWaveform: Bool, promise: Promise) in
 			if self.isRecording() {
+				self.debugLog("startRecording called while already recording")
 				promise.resolve(true)
 				return
 			}
 
 			let permission = AVAudioSession.sharedInstance().recordPermission
+			self.debugLog("startRecording requested - permission: \(permission.rawValue), waveform: \(enableWaveform)")
 			if permission != .granted {
 				self.debugLog("Microphone permission not granted")
 				promise.resolve(false)
@@ -212,6 +261,7 @@ public class EngineModule: Module {
 				try self.startAudioEngine()
 				promise.resolve(true)
 			} catch {
+				try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
 				self.debugLog("Failed to start recording: \(error)")
 				promise.resolve(false)
 			}
@@ -219,16 +269,55 @@ public class EngineModule: Module {
 
 		Function("stopRecording") { self.stopAudioEngine() }
 		Function("isRecording") { self.isRecording() }
+		Function("getDebugState") { () -> [String: Any] in
+			let session = AVAudioSession.sharedInstance()
+			return [
+				"recording": self.isRecording(),
+				"engineRunning": self.audioEngine?.isRunning ?? false,
+				"graphConnected": self.graphConnected,
+				"waveform": self.enableWaveformEvents,
+				"tapCallbacks": self.inputBuffer.writes,
+				"tapDrops": self.inputBuffer.unsupportedBuffers,
+				"resampledBuffers": self.inputBuffer.resampleReads,
+				"lastTapFrames": self.inputBuffer.lastInputFrames,
+				"lastTapRate": self.inputBuffer.sourceSampleRate,
+				"lastTapFormat": self.inputBuffer.formatSummary,
+				"inputLogs": self.inputLogCount,
+				"processedChunks": self.processedChunkCount,
+				"queuedChunks": self.inputBuffer.queuedFrames,
+				"drops": self.inputBuffer.droppedFrames,
+				"inputPeak": self.inputBuffer.peak,
+				"inputRms": self.inputBuffer.rms,
+				"writtenFrames": self.inputBuffer.writtenFrames,
+				"outputFrames": self.inputBuffer.outputFrames,
+				"stateEmits": self.stateEmitCount,
+				"visualEmits": self.visualEmitCount,
+				"waveformEmits": self.waveformEmitCount,
+				"frameCount": Int(self.bridge.getFrameCount()),
+				"bpm": Double(self.bridge.getBpm()),
+				"bpmConfidence": Double(self.bridge.getBpmConfidence()),
+				"sampleRate": session.sampleRate,
+				"inputAvailable": session.isInputAvailable,
+				"route": self.routeDescription(session)
+			]
+		}
 		}
 
 	// MARK: - Audio Engine
 
 	private func setupAudioSession() throws {
 		let session = AVAudioSession.sharedInstance()
-		try session.setCategory(.playAndRecord, mode: .measurement, options: [.defaultToSpeaker, .allowBluetoothA2DP])
-		// Use 44100 Hz for native sample rate (key detection + resampled BPM)
-		try session.setPreferredSampleRate(44100)
+		let opts: AVAudioSession.CategoryOptions = [
+			.defaultToSpeaker,
+			.allowBluetoothA2DP,
+			.mixWithOthers
+		]
+		try session.setCategory(.playAndRecord, mode: .default, options: opts)
+		try session.setPreferredSampleRate(48000)
+		try session.setPreferredIOBufferDuration(0.01)
 		try session.setActive(true)
+		keepSpeakerRoute(session)
+		debugLog("Audio session active with mixWithOthers - sampleRate: \(session.sampleRate), inputAvailable: \(session.isInputAvailable), route: \(routeDescription(session))")
 	}
 
 	private func startAudioEngine() throws {
@@ -242,132 +331,88 @@ public class EngineModule: Module {
 		let inputNode = audioEngine.inputNode
 		let inputFormat = inputNode.outputFormat(forBus: 0)
 
-		// Target format: 44100 Hz mono (native for both BPM via resampling and key detection)
-		guard let targetFormat = AVAudioFormat(
-			commonFormat: .pcmFormatFloat32,
-			sampleRate: 44100,
-			channels: 1,
-			interleaved: false
-		) else {
-			throw NSError(domain: "EngineModule", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to create audio format"])
-		}
-
-		let converter = AVAudioConverter(from: inputFormat, to: targetFormat)
-		// Buffer size for ~20ms at input sample rate (good for real-time processing)
-		let bufferSize = AVAudioFrameCount(inputFormat.sampleRate / 50.0)
-		let conversionCapacity = AVAudioFrameCount(ceil(Double(bufferSize) * targetFormat.sampleRate / inputFormat.sampleRate)) + 32
-		let conversionBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: conversionCapacity)
-
 		bridge.reset()
+		inputBuffer.configure(with: inputFormat)
+		graphConnected = false
 		lastKeyNotation = ""
 		lastKeyCamelot = ""
 		lastKeyConfidence = 0
 		waveformWriteIndex = 0
 		waveformSamplesAccumulated = 0
 		waveformEmitCount = 0
+		inputLogCount = 0
+		processedChunkCount = 0
+		stateEmitCount = 0
+		visualEmitCount = 0
 		recordingStartTime = Date().timeIntervalSince1970
 		lastStateEmitTime = 0
+		lastVisualEmitTime = 0
 		lastWaveformEmitTime = 0
-		sampleQ.sync {
-			sampleList.removeAll(keepingCapacity: true)
-			isDraining = false
-			dropCount = 0
-		}
+		lastAudioStatsLogTime = 0
 
-		inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: inputFormat) { [weak self] buffer, _ in
-			guard let self = self else { return }
-
-			if inputFormat.sampleRate == 44100 {
-				guard let data = buffer.floatChannelData?[0] else { return }
-				self.enqueueAudio(data, count: Int(buffer.frameLength))
-				return
-			}
-			guard let converter = converter, let conversionBuffer = conversionBuffer else {
-				return
-			}
-			let sampleCount = self.convert(buffer: buffer, converter: converter, outputBuffer: conversionBuffer)
-			if sampleCount <= 0 {
-				return
-			}
-			guard let data = conversionBuffer.floatChannelData?[0] else { return }
-			self.enqueueAudio(data, count: sampleCount)
+		let sink = AVAudioSinkNode { [weak self] _, frames, data in
+			_ = self?.inputBuffer.write(data, frameCount: frames)
+			return noErr
 		}
+		sinkNode = sink
+		audioEngine.attach(sink)
+		audioEngine.connect(inputNode, to: sink, format: inputFormat)
+		graphConnected = true
 
 		audioEngine.prepare()
 		try audioEngine.start()
+		keepSpeakerRoute(AVAudioSession.sharedInstance())
 		setRecording(true)
-		debugLog("Audio engine started at \(inputFormat.sampleRate)Hz -> 44100Hz, buffer: \(bufferSize), waveform: \(enableWaveformEvents)")
+		procQ.async { [weak self] in
+			self?.drainAudio()
+		}
+		debugLog("Audio engine started - inputFormat: \(inputFormat), targetRate: \(targetSampleRate), waveform: \(enableWaveformEvents)")
 	}
 
 	private func stopAudioEngine() {
 		setRecording(false)
-		audioEngine?.inputNode.removeTap(onBus: 0)
 		audioEngine?.stop()
-		audioEngine = nil
-		sampleQ.sync {
-			sampleList.removeAll(keepingCapacity: true)
-			isDraining = false
+		if let sinkNode {
+			audioEngine?.detach(sinkNode)
 		}
+		sinkNode = nil
+		audioEngine = nil
+		graphConnected = false
 		procQ.sync {}
+		inputBuffer.reset()
 		lastStateEmitTime = 0
+		lastVisualEmitTime = 0
 		lastWaveformEmitTime = 0
 
-		try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
+		try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
 		debugLog("Audio engine stopped")
 	}
 
-	private func enqueueAudio(_ samples: UnsafePointer<Float>, count: Int) {
-		if count <= 0 {
+	private func logInputBuffer(_ samples: UnsafePointer<Float>, count: Int, sampleRate: Double) {
+		if inputLogCount >= 3 {
 			return
 		}
-		let chunk = Array(UnsafeBufferPointer(start: samples, count: count))
-		sampleQ.async {
-			if self.sampleList.count >= self.sampleLimit {
-				let over = self.sampleList.count - self.sampleLimit + 1
-				self.sampleList.removeFirst(over)
-				self.dropCount += over
-				if self.dropCount % 10 == 0 {
-					self.debugLog("Dropped \(self.dropCount) buffered audio chunks")
-				}
-			}
-			self.sampleList.append(chunk)
-			if self.isDraining {
-				return
-			}
-			self.isDraining = true
-			self.procQ.async { [weak self] in
-				self?.drainAudio()
-			}
-		}
-	}
-
-	private func popAudio() -> [Float]? {
-		sampleQ.sync {
-			if sampleList.isEmpty {
-				isDraining = false
-				return nil
-			}
-			return sampleList.removeFirst()
-		}
+		inputLogCount += 1
+		let stats = sampleStats(samples, count: count)
+		debugLog("Input buffer \(inputLogCount) - sampleRate: \(sampleRate), count: \(count), peak: \(stats.peak), rms: \(stats.rms)")
 	}
 
 	private func drainAudio() {
-		while true {
-			if !isRecording() {
-				sampleQ.sync {
-					sampleList.removeAll(keepingCapacity: true)
-					isDraining = false
-				}
-				return
+		while isRecording() {
+			let count = processBuffer.withUnsafeMutableBufferPointer { ptr -> Int in
+				guard let base = ptr.baseAddress else { return 0 }
+				return Int(inputBuffer.readSamples(base, capacity: UInt(ptr.count)))
 			}
-			guard let chunk = popAudio() else {
-				return
+
+			if count == 0 {
+				Thread.sleep(forTimeInterval: drainInterval)
+				continue
 			}
-			chunk.withUnsafeBufferPointer { ptr in
-				guard let base = ptr.baseAddress else {
-					return
-				}
-				processAudioSamples(base, count: ptr.count)
+
+			processBuffer.withUnsafeBufferPointer { ptr in
+				guard let base = ptr.baseAddress else { return }
+				logInputBuffer(base, count: count, sampleRate: targetSampleRate)
+				processAudioSamples(base, count: count)
 			}
 		}
 	}
@@ -419,36 +464,6 @@ public class EngineModule: Module {
 		return (0.33, 0.33, 0.34)
 	}
 
-	private func convert(buffer: AVAudioPCMBuffer, converter: AVAudioConverter, outputBuffer: AVAudioPCMBuffer) -> Int {
-		let ratio = outputBuffer.format.sampleRate / buffer.format.sampleRate
-		let outputFrameCount = AVAudioFrameCount(Double(buffer.frameLength) * ratio)
-		if outputFrameCount > outputBuffer.frameCapacity {
-			return 0
-		}
-		outputBuffer.frameLength = outputFrameCount
-		var error: NSError?
-		var inputConsumed = false
-		let inputBlock: AVAudioConverterInputBlock = { _, outStatus in
-			if inputConsumed {
-				outStatus.pointee = .noDataNow
-				return nil
-			}
-			inputConsumed = true
-			outStatus.pointee = .haveData
-			return buffer
-		}
-
-		let status = converter.convert(to: outputBuffer, error: &error, withInputFrom: inputBlock)
-		if let error = error {
-			debugLog("Conversion error: \(error)")
-			return 0
-		}
-		if status == .error {
-			return 0
-		}
-		return Int(outputBuffer.frameLength)
-	}
-
 	private var recordingStartTime: TimeInterval = 0
 
 	private func processAudioSamples(_ samples: UnsafePointer<Float>, count: Int) {
@@ -465,15 +480,36 @@ public class EngineModule: Module {
 
 		let now = Date().timeIntervalSince1970
 		let timestamp = now - recordingStartTime
+		processedChunkCount += 1
+		if processedChunkCount <= 3 || now - lastAudioStatsLogTime >= 1 {
+			lastAudioStatsLogTime = now
+			let stats = sampleStats(samples, count: count)
+			debugLog("Processed audio - chunks: \(processedChunkCount), count: \(count), peak: \(stats.peak), rms: \(stats.rms), hasState: \(hasState), frames: \(bridge.getFrameCount()), bpm: \(bridge.getBpm()), beat: \(beatActivation), downbeat: \(downbeatActivation)")
+		}
 
-		// Emit BPM state events (if available)
-		if hasState && now - lastStateEmitTime >= stateEmitInterval {
-			lastStateEmitTime = now
-			sendEvent("onState", [
-				"beatActivation": Double(beatActivation),
-				"downbeatActivation": Double(downbeatActivation),
-				"timestamp": timestamp
-			])
+		if hasState {
+			if now - lastVisualEmitTime >= visualEmitInterval {
+				lastVisualEmitTime = now
+				visualEmitCount += 1
+				sendEvent("onVisual", [
+					"beatActivation": Double(beatActivation),
+					"downbeatActivation": Double(downbeatActivation),
+					"timestamp": timestamp
+				])
+			}
+
+			if now - lastStateEmitTime >= stateEmitInterval {
+				lastStateEmitTime = now
+				stateEmitCount += 1
+				if stateEmitCount <= 3 {
+					debugLog("State emit \(stateEmitCount) - beat: \(beatActivation), downbeat: \(downbeatActivation), timestamp: \(timestamp)")
+				}
+				sendEvent("onState", [
+					"beatActivation": Double(beatActivation),
+					"downbeatActivation": Double(downbeatActivation),
+					"timestamp": timestamp
+				])
+			}
 		}
 
 		// Check for key detection updates (emit on key change OR significant confidence change)
@@ -502,7 +538,7 @@ public class EngineModule: Module {
 				waveformSamplesAccumulated += 1
 			}
 
-			// Emit waveform more frequently at 44100 Hz (adjust threshold)
+			// Wait for two ring-buffer passes so waveform bands have stable data.
 			let waveformThreshold = waveformInputSize * 2  // Account for higher sample rate
 			if waveformSamplesAccumulated >= waveformThreshold {
 				waveformSamplesAccumulated = 0
@@ -539,8 +575,8 @@ public class EngineModule: Module {
 				let bands = computeFrequencyBands(orderedSamples)
 
 				waveformEmitCount += 1
-				if waveformEmitCount == 1 {
-					debugLog("First waveform emit - peak: \(peak), rms: \(rms), bands: \(bands)")
+				if waveformEmitCount <= 3 || waveformEmitCount % 12 == 0 {
+					debugLog("Waveform emit \(waveformEmitCount) - peak: \(peak), rms: \(rms), bands: \(bands), samples: \(downsampledPoints.count)")
 				}
 				sendEvent("onWaveform", [
 					"samples": downsampledPoints,

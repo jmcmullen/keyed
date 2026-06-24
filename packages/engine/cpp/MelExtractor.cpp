@@ -14,9 +14,7 @@
 
 namespace engine {
 
-// ============================================================================
 // Utility Functions - Exact match to madmom/audio/filters.py
-// ============================================================================
 
 /**
  * Create Hann window (matches scipy.signal.hann)
@@ -111,10 +109,6 @@ static std::vector<int> frequencies2bins(
     return indices;
 }
 
-// ============================================================================
-// LogFilterbank Implementation - Exact match to madmom LogarithmicFilterbank
-// ============================================================================
-
 LogFilterbank::LogFilterbank(int fftSize, int sampleRate, int bandsPerOctave,
                              float fMin, float fMax, bool normalize)
     : numBins_(fftSize / 2) {  // Exclude Nyquist like madmom
@@ -199,10 +193,6 @@ void LogFilterbank::apply(const float* magnitude, float* output) const {
         output[m] = sum;
     }
 }
-
-// ============================================================================
-// MelExtractor Implementation
-// ============================================================================
 
 struct MelExtractor::Impl {
     // FFT processor
@@ -323,10 +313,6 @@ bool MelExtractor::processFrame(const float* frame, int frameLength, float* feat
 
     return true;
 }
-
-// ============================================================================
-// StreamingMelExtractor Implementation
-// ============================================================================
 
 struct StreamingMelExtractor::Impl {
     MelExtractor extractor;

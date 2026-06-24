@@ -21,16 +21,8 @@
 
 namespace engine {
 
-// ============================================================================
-// Constants
-// ============================================================================
-
 static constexpr double PI = 3.14159265358979323846;
 static constexpr double TWO_PI = 2.0 * PI;
-
-// ============================================================================
-// Utility Functions
-// ============================================================================
 
 /**
  * Compute Q factor for CQT
@@ -106,10 +98,6 @@ static CqtKernel createKernel(float centerFreq, int filterLength, int sampleRate
 
 	return kernel;
 }
-
-// ============================================================================
-// CqtExtractor Implementation
-// ============================================================================
 
 struct CqtExtractor::Impl {
 	std::vector<CqtKernel> kernels;
@@ -209,15 +197,12 @@ const std::vector<int>& CqtExtractor::getFilterLengths() const {
 	return impl_->filterLengths;
 }
 
-// ============================================================================
-// StreamingCqtExtractor Implementation
-// ============================================================================
-
 struct StreamingCqtExtractor::Impl {
 	CqtExtractor extractor;
 
 	// Circular buffer for audio samples
 	std::vector<float> buffer;
+	std::vector<float> frameAudio;
 	int64_t writePos;
 	int64_t samplesReceived;
 	int64_t frameCount;
@@ -232,6 +217,7 @@ struct StreamingCqtExtractor::Impl {
 
 	Impl() : writePos(0), samplesReceived(0), frameCount(0) {
 		buffer.resize(BUFFER_SIZE, 0.0f);
+		frameAudio.resize(CqtConfig::MAX_FILTER_LENGTH, 0.0f);
 
 		// Pre-fill with zeros for centered framing
 		// First frame is centered at sample 0, using zero-padding on the left
@@ -240,6 +226,7 @@ struct StreamingCqtExtractor::Impl {
 
 	void reset() {
 		std::fill(buffer.begin(), buffer.end(), 0.0f);
+		std::fill(frameAudio.begin(), frameAudio.end(), 0.0f);
 		writePos = PADDING;
 		samplesReceived = 0;
 		frameCount = 0;
@@ -282,9 +269,6 @@ int StreamingCqtExtractor::push(const float* samples, int numSamples,
 			int64_t frameCenter = impl.frameCount * static_cast<int64_t>(hopLength);
 
 			if (framesProduced < maxFrames) {
-				// We need maxFilterLen samples centered at frameCenter.
-				std::vector<float> frameAudio(maxFilterLen);
-
 				int64_t startSample = frameCenter - maxFilterLen / 2;
 				for (int j = 0; j < maxFilterLen; j++) {
 					int64_t sampleIdx = startSample + j;
@@ -293,12 +277,12 @@ int StreamingCqtExtractor::push(const float* samples, int numSamples,
 					if (bufIdx < 0) {
 						bufIdx += Impl::BUFFER_SIZE;
 					}
-					frameAudio[j] = impl.buffer[static_cast<size_t>(bufIdx)];
+					impl.frameAudio[j] = impl.buffer[static_cast<size_t>(bufIdx)];
 				}
 
 				// Process frame.
 				impl.extractor.processFrame(
-					frameAudio.data(), maxFilterLen,
+					impl.frameAudio.data(), maxFilterLen,
 					cqtFrames + framesProduced * CqtConfig::N_BINS);
 
 				framesProduced++;

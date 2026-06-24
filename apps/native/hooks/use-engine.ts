@@ -13,6 +13,7 @@ export type DetectionStatus =
 
 export interface BeatNetResult {
 	bpm: number;
+	bpmConfidence: number;
 	frameCount: number;
 	beatActivation: number;
 	downbeatActivation: number;
@@ -29,12 +30,6 @@ export interface UseEngineOptions {
 	onWaveform?: (data: WaveformData) => void;
 }
 
-export interface FrequencyBands {
-	low: number;
-	mid: number;
-	high: number;
-}
-
 export interface UseEngineReturn {
 	status: DetectionStatus;
 	isListening: boolean;
@@ -44,9 +39,6 @@ export interface UseEngineReturn {
 	key: KeyState | null;
 	beatActivation: number;
 	downbeatActivation: number;
-	waveformSamples: number[];
-	waveformBands: FrequencyBands;
-	audioLevel: number;
 	error: string | null;
 	startListening: () => Promise<boolean>;
 	stopListening: () => boolean;
@@ -56,11 +48,16 @@ export interface UseEngineReturn {
 const RESULT_UPDATE_INTERVAL = 100;
 const BPM_POLL_INTERVAL = 500;
 const KEY_EVENT_INTERVAL = 100;
-const BANDS_INIT = {
-	low: 0.33,
-	mid: 0.33,
-	high: 0.34,
-} as const;
+const LOG_INTERVAL = 1_000;
+const HEALTH_DELAY = 2_500;
+
+function log(msg: string, data?: Record<string, unknown>) {
+	if (data) {
+		console.info(`[useEngine] ${msg}`, data);
+		return;
+	}
+	console.info(`[useEngine] ${msg}`);
+}
 
 export function useEngine(options: UseEngineOptions = {}): UseEngineReturn {
 	const { onWaveform } = options;
@@ -74,12 +71,9 @@ export function useEngine(options: UseEngineOptions = {}): UseEngineReturn {
 	const [isListening, setIsListening] = useState(false);
 	const [beatActivation, setBeatActivation] = useState(0);
 	const [downbeatActivation, setDownbeatActivation] = useState(0);
-	const [waveformSamples, setWaveformSamples] = useState<number[]>([]);
-	const [waveformBands, setWaveformBands] =
-		useState<FrequencyBands>(BANDS_INIT);
-	const [audioLevel, setAudioLevel] = useState(0);
 
 	const latestBpmRef = useRef<number>(0);
+	const latestBpmConfidenceRef = useRef<number>(0);
 	const lastResultUpdateRef = useRef<number>(0);
 	const lastBpmPollRef = useRef<number>(0);
 	const lastKeyUpdateRef = useRef<number>(0);
@@ -87,6 +81,12 @@ export function useEngine(options: UseEngineOptions = {}): UseEngineReturn {
 	const resultRef = useRef(result);
 	const isListeningRef = useRef(false);
 	const busyRef = useRef(false);
+	const stateCountRef = useRef(0);
+	const waveformCountRef = useRef(0);
+	const keyCountRef = useRef(0);
+	const lastStateLogRef = useRef(0);
+	const lastWaveformLogRef = useRef(0);
+	const levelRef = useRef(0);
 
 	onWaveformRef.current = onWaveform;
 	resultRef.current = result;
@@ -103,25 +103,36 @@ export function useEngine(options: UseEngineOptions = {}): UseEngineReturn {
 
 	const clear = useCallback(() => {
 		latestBpmRef.current = 0;
+		latestBpmConfidenceRef.current = 0;
 		lastResultUpdateRef.current = 0;
 		lastBpmPollRef.current = 0;
 		lastKeyUpdateRef.current = 0;
+		stateCountRef.current = 0;
+		waveformCountRef.current = 0;
+		keyCountRef.current = 0;
+		lastStateLogRef.current = 0;
+		lastWaveformLogRef.current = 0;
+		levelRef.current = 0;
 		setResult(null);
 		setKey(null);
 		setBeatActivation(0);
 		setDownbeatActivation(0);
-		setWaveformSamples([]);
-		setWaveformBands(BANDS_INIT);
-		setAudioLevel(0);
 	}, []);
 
 	useEffect(() => {
 		setStatus("initializing");
 		let live = true;
 
+		log("loading models");
 		void Promise.all([EngineModule.loadModel(), EngineModule.loadKeyModel()])
 			.then(([loaded, loadedKey]) => {
 				if (!live) return;
+				log("models loaded", {
+					loaded,
+					loadedKey,
+					ready: EngineModule.isReady(),
+					keyReady: EngineModule.isKeyReady(),
+				});
 				if (!loaded || !loadedKey) {
 					setError("Failed to load native detection models");
 					setStatus("error");
@@ -136,6 +147,7 @@ export function useEngine(options: UseEngineOptions = {}): UseEngineReturn {
 					err instanceof Error
 						? err.message
 						: "Failed to load native detection models";
+				log("model load failed", { message });
 				setError(message);
 				setStatus("error");
 			});
@@ -151,13 +163,13 @@ export function useEngine(options: UseEngineOptions = {}): UseEngineReturn {
 			(event: State) => {
 				if (!isListeningRef.current) return;
 
-				setBeatActivation(event.beatActivation);
-				setDownbeatActivation(event.downbeatActivation);
+				stateCountRef.current += 1;
 
 				const now = Date.now();
 				const shouldPollBpm = now - lastBpmPollRef.current >= BPM_POLL_INTERVAL;
 
 				let bpm = latestBpmRef.current;
+				let bpmConfidence = latestBpmConfidenceRef.current;
 				let frameCount = resultRef.current?.frameCount ?? 0;
 
 				if (shouldPollBpm) {
@@ -166,21 +178,38 @@ export function useEngine(options: UseEngineOptions = {}): UseEngineReturn {
 
 					if (frameCount >= 100) {
 						bpm = EngineModule.getBpm();
+						bpmConfidence = EngineModule.getBpmConfidence();
 						if (bpm !== latestBpmRef.current && bpm > 0) {
 							latestBpmRef.current = bpm;
 						}
+						latestBpmConfidenceRef.current = bpm > 0 ? bpmConfidence : 0;
 					}
 				}
 
 				const next: BeatNetResult = {
 					bpm: bpm > 0 ? bpm : 0,
+					bpmConfidence: bpm > 0 ? bpmConfidence : 0,
 					frameCount,
 					beatActivation: event.beatActivation,
 					downbeatActivation: event.downbeatActivation,
 				};
 
+				if (now - lastStateLogRef.current >= LOG_INTERVAL) {
+					lastStateLogRef.current = now;
+					log("state event", {
+						events: stateCountRef.current,
+						frameCount,
+						bpm,
+						bpmConfidence,
+						beat: event.beatActivation,
+						downbeat: event.downbeatActivation,
+						timestamp: event.timestamp,
+					});
+				}
 				if (now - lastResultUpdateRef.current < RESULT_UPDATE_INTERVAL) return;
 				lastResultUpdateRef.current = now;
+				setBeatActivation(event.beatActivation);
+				setDownbeatActivation(event.downbeatActivation);
 				setResult(next);
 				if (bpm > 0) {
 					setStatus("detected");
@@ -193,13 +222,21 @@ export function useEngine(options: UseEngineOptions = {}): UseEngineReturn {
 			(event: WaveformData) => {
 				if (!isListeningRef.current) return;
 
-				setWaveformSamples(event.samples);
-				setWaveformBands({
-					low: event.low,
-					mid: event.mid,
-					high: event.high,
-				});
-				setAudioLevel(event.rms);
+				waveformCountRef.current += 1;
+				levelRef.current = event.rms;
+				const now = Date.now();
+				if (now - lastWaveformLogRef.current >= LOG_INTERVAL) {
+					lastWaveformLogRef.current = now;
+					log("waveform event", {
+						events: waveformCountRef.current,
+						samples: event.samples.length,
+						peak: event.peak,
+						rms: event.rms,
+						low: event.low,
+						mid: event.mid,
+						high: event.high,
+					});
+				}
 				onWaveformRef.current?.(event);
 			},
 		);
@@ -209,10 +246,18 @@ export function useEngine(options: UseEngineOptions = {}): UseEngineReturn {
 			(event: KeyResult) => {
 				if (!isListeningRef.current) return;
 
+				keyCountRef.current += 1;
 				const now = Date.now();
 				if (now - lastKeyUpdateRef.current < KEY_EVENT_INTERVAL) return;
 				lastKeyUpdateRef.current = now;
 
+				log("key event", {
+					events: keyCountRef.current,
+					camelot: event.camelot,
+					notation: event.notation,
+					confidence: event.confidence,
+					timestamp: event.timestamp,
+				});
 				const next: KeyState = {
 					camelot: event.camelot,
 					notation: event.notation,
@@ -234,24 +279,6 @@ export function useEngine(options: UseEngineOptions = {}): UseEngineReturn {
 		};
 	}, []);
 
-	useFocusEffect(
-		useCallback(() => {
-			return () => {
-				if (!isListeningRef.current) {
-					return;
-				}
-				isListeningRef.current = false;
-				setIsListening(false);
-				setStatus(
-					resultRef.current?.bpm && resultRef.current.bpm > 0
-						? "detected"
-						: "idle",
-				);
-				EngineModule.stopRecording();
-			};
-		}, []),
-	);
-
 	useEffect(() => {
 		return () => {
 			isListeningRef.current = false;
@@ -266,6 +293,12 @@ export function useEngine(options: UseEngineOptions = {}): UseEngineReturn {
 		}
 		lock();
 		try {
+			log("start requested", {
+				ready: EngineModule.isReady(),
+				keyReady: EngineModule.isKeyReady(),
+				recording: EngineModule.isRecording(),
+				native: EngineModule.getDebugState?.() ?? null,
+			});
 			if (!EngineModule.isReady() || !EngineModule.isKeyReady()) {
 				setError("Models not initialized");
 				setStatus("error");
@@ -274,8 +307,10 @@ export function useEngine(options: UseEngineOptions = {}): UseEngineReturn {
 
 			setError(null);
 
+			const permission = EngineModule.getPermissionStatus();
+			log("permission checked", { permission });
 			const permissionResult = await resolvePermission(
-				EngineModule.getPermissionStatus(),
+				permission,
 				() => EngineModule.requestPermission() as Promise<unknown>,
 			);
 			if (!permissionResult.granted) {
@@ -289,6 +324,7 @@ export function useEngine(options: UseEngineOptions = {}): UseEngineReturn {
 			}
 
 			clear();
+			isListeningRef.current = true;
 
 			const startResult = await EngineModule.startRecording(true)
 				.then((started) => ({ started, err: "" }))
@@ -299,7 +335,14 @@ export function useEngine(options: UseEngineOptions = {}): UseEngineReturn {
 							? err.message
 							: "Failed to start native audio recording",
 				}));
+			log("start result", {
+				started: startResult.started,
+				err: startResult.err,
+				recording: EngineModule.isRecording(),
+				native: EngineModule.getDebugState?.() ?? null,
+			});
 			if (!startResult.started) {
+				isListeningRef.current = false;
 				const message =
 					startResult.err || "Failed to start native audio recording";
 				if (startResult.err) {
@@ -310,9 +353,22 @@ export function useEngine(options: UseEngineOptions = {}): UseEngineReturn {
 				return false;
 			}
 
-			isListeningRef.current = true;
 			setIsListening(true);
 			setStatus("listening");
+			setTimeout(() => {
+				if (!isListeningRef.current) return;
+				log("health", {
+					recording: EngineModule.isRecording(),
+					frameCount: EngineModule.getFrameCount(),
+					bpm: EngineModule.getBpm(),
+					bpmConfidence: EngineModule.getBpmConfidence(),
+					stateEvents: stateCountRef.current,
+					waveformEvents: waveformCountRef.current,
+					keyEvents: keyCountRef.current,
+					rms: levelRef.current,
+					native: EngineModule.getDebugState?.() ?? null,
+				});
+			}, HEALTH_DELAY);
 			return true;
 		} finally {
 			unlock();
@@ -339,6 +395,22 @@ export function useEngine(options: UseEngineOptions = {}): UseEngineReturn {
 		}
 	}, [lock, unlock]);
 
+	useFocusEffect(
+		useCallback(() => {
+			return () => {
+				if (!isListeningRef.current) return;
+				isListeningRef.current = false;
+				EngineModule.stopRecording();
+				setIsListening(false);
+				setStatus(
+					resultRef.current?.bpm && resultRef.current.bpm > 0
+						? "detected"
+						: "idle",
+				);
+			};
+		}, []),
+	);
+
 	const reset = useCallback(() => {
 		if (busyRef.current) {
 			return;
@@ -361,9 +433,6 @@ export function useEngine(options: UseEngineOptions = {}): UseEngineReturn {
 		key,
 		beatActivation,
 		downbeatActivation,
-		waveformSamples,
-		waveformBands,
-		audioLevel,
 		error,
 		startListening,
 		stopListening,

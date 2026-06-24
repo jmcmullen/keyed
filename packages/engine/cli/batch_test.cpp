@@ -89,7 +89,6 @@ struct TestResult {
 };
 
 std::string extractBasename(const std::string& filename) {
-	// Extract filename without path and extension
 	size_t lastSlash = filename.find_last_of("/\\");
 	std::string basename = (lastSlash != std::string::npos)
 		? filename.substr(lastSlash + 1)
@@ -112,7 +111,6 @@ float extractExpectedBpm(const std::string& filename) {
 		basename = basename.substr(0, underscore);
 	}
 
-	// Parse as float
 	return static_cast<float>(atof(basename.c_str()));
 }
 
@@ -126,7 +124,6 @@ TestResult testFile(const std::string& filepath, Engine& engine,
 	result.bpmFrames = 0;
 	result.bpmPassed = false;
 
-	// Look up expected key
 	std::string basename = extractBasename(filepath);
 	auto it = expectedKeys.find(basename);
 	result.expectedKey = (it != expectedKeys.end()) ? it->second : "?";
@@ -135,7 +132,6 @@ TestResult testFile(const std::string& filepath, Engine& engine,
 	result.keyFrames = 0;
 	result.keyPassed = false;
 
-	// Initialize decoder at 44100 Hz (native for key detection)
 	ma_decoder_config decoderConfig = ma_decoder_config_init(ma_format_f32, 1, TARGET_SAMPLE_RATE);
 	ma_decoder decoder;
 
@@ -144,7 +140,6 @@ TestResult testFile(const std::string& filepath, Engine& engine,
 		return result;
 	}
 
-	// Reset engine state
 	engine.reset();
 
 	// Process audio in chunks (882 samples = 20ms at 44100Hz)
@@ -161,7 +156,6 @@ TestResult testFile(const std::string& filepath, Engine& engine,
 
 	ma_decoder_uninit(&decoder);
 
-	// Get BPM results
 	result.detectedBpm = engine.getBpm();
 	result.bpmFrames = engine.getFrameCount();
 
@@ -170,7 +164,6 @@ TestResult testFile(const std::string& filepath, Engine& engine,
 		result.bpmPassed = std::fabs(result.bpmError) <= 0.5f;
 	}
 
-	// Get Key results
 	auto keyResult = engine.getKey();
 	result.keyFrames = engine.getKeyFrameCount();
 	if (keyResult.valid) {
@@ -185,14 +178,11 @@ TestResult testFile(const std::string& filepath, Engine& engine,
 std::vector<std::string> getAudioFiles(const std::string& path) {
 	std::vector<std::string> files;
 
-	// Check if path is a file or directory
 	DIR* dir = opendir(path.c_str());
 	if (dir) {
-		// It's a directory - scan for audio files
 		struct dirent* entry;
 		while ((entry = readdir(dir)) != nullptr) {
 			std::string name = entry->d_name;
-			// Check for various audio extensions
 				auto hasExt = [&name](const std::string& ext) {
 					if (name.size() <= ext.size()) return false;
 					std::string suffix = name.substr(name.size() - ext.size());
@@ -208,12 +198,10 @@ std::vector<std::string> getAudioFiles(const std::string& path) {
 		}
 		closedir(dir);
 
-		// Sort files by expected BPM
 		std::sort(files.begin(), files.end(), [](const std::string& a, const std::string& b) {
 			return extractExpectedBpm(a) < extractExpectedBpm(b);
 		});
 	} else {
-		// It's a single file
 		files.push_back(path);
 	}
 
@@ -221,7 +209,6 @@ std::vector<std::string> getAudioFiles(const std::string& path) {
 }
 
 int main() {
-	// Load BPM model
 	Engine engine;
 	std::string modelPath = getModelPath();
 	if (!engine.loadModel(modelPath)) {
@@ -230,7 +217,6 @@ int main() {
 	}
 	printf("Loaded BeatNet model\n");
 
-	// Load Key model
 	std::string keyModelPath = getKeyModelPath();
 	if (!engine.loadKeyModel(keyModelPath)) {
 		fprintf(stderr, "Error: Failed to load MusicalKeyCNN from %s\n", keyModelPath.c_str());
@@ -238,10 +224,8 @@ int main() {
 	}
 	printf("Loaded MusicalKeyCNN model\n");
 
-	// Get expected keys from Rekordbox
 	auto expectedKeys = getExpectedKeys();
 
-	// Get audio files
 	std::vector<std::string> files = getAudioFiles(getTestDataPath());
 	if (files.empty()) {
 		fprintf(stderr, "Error: No audio files found\n");
@@ -263,7 +247,6 @@ int main() {
 		TestResult result = testFile(file, engine, expectedKeys);
 		results.push_back(result);
 
-		// Extract just filename for display
 		std::string displayName = extractBasename(file);
 
 		printf("%-15s | %8.1f %8.1f %+7.2f %4s | %6s %6s %5.0f%% %4s\n",
@@ -284,7 +267,6 @@ int main() {
 
 	printf("=====================================================================================================\n");
 
-	// Summary
 	float avgBpmError = totalBpmError / static_cast<float>(results.size());
 	printf("\nBPM Summary:\n");
 	printf("  Passed (within 0.5 BPM): %d / %zu (%.1f%%)\n",
@@ -297,7 +279,6 @@ int main() {
 		keyPassed, results.size(),
 		100.0f * keyPassed / results.size());
 
-	// Show key mismatches
 	printf("\nKey Mismatches (vs Rekordbox):\n");
 	bool anyKeyMismatch = false;
 	for (const auto& r : results) {
@@ -313,15 +294,14 @@ int main() {
 		printf("  None!\n");
 	}
 
-	// Show files where key wasn't detected
 	printf("\nNo Key Detected:\n");
 	bool anyNoKey = false;
 	for (const auto& r : results) {
 		if (r.detectedKey.empty()) {
 			anyNoKey = true;
 			std::string displayName = extractBasename(r.filename);
-			printf("  %s: only %zu CQT frames (need 100)\n",
-				displayName.c_str(), r.keyFrames);
+			printf("  %s: only %zu CQT frames (need %d)\n",
+				displayName.c_str(), r.keyFrames, Engine::KEY_FAST_FRAMES);
 		}
 	}
 	if (!anyNoKey) {

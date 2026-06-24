@@ -34,7 +34,6 @@
      - Green: high confidence (>80%)
      - Amber: medium confidence (50-80%)
      - Red: low confidence (<50%)
-   - Tap tempo button (small, nearby) → expands into tap zone when activated
 
 3. **Key Display**
    - Standard notation large (e.g. "Am")
@@ -61,7 +60,6 @@
 #### Behaviour
 
 - Tap to start listening
-- Auto-stop after ~5 seconds of silence
 - Optional manual stop by tapping again
 - On stop: save entry to history automatically
 
@@ -148,7 +146,6 @@ Each row displays:
 ## Iconography
 
 - History: Clock or list icon
-- Tap tempo: Metronome or hand/tap icon
 - Microphone: Waveform or mic icon for listening state
 - Delete: Trash icon
 

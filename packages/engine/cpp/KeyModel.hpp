@@ -7,7 +7,6 @@
 #include <memory>
 #include <vector>
 
-// Forward declare ONNX Runtime types
 struct OrtApi;
 struct OrtSession;
 struct OrtSessionOptions;
@@ -20,6 +19,7 @@ namespace engine {
 struct KeyOutput {
 	int keyIndex;            // 0-23 (0-11 minor, 12-23 major)
 	float confidence;        // 0-1, softmax probability of predicted key
+	float margin;            // Difference between top two softmax probabilities
 	std::string camelot;     // Camelot notation: "1A" - "12B"
 	std::string notation;    // Musical notation: "Am", "C", etc.
 };
@@ -39,7 +39,6 @@ public:
 	KeyModel();
 	~KeyModel();
 
-	// Non-copyable
 	KeyModel(const KeyModel&) = delete;
 	KeyModel& operator=(const KeyModel&) = delete;
 
@@ -76,7 +75,8 @@ public:
 	 * @param output Output key detection result
 	 * @return true if inference succeeded
 	 */
-	bool inferVariable(const float* cqtSpectrogram, int numFrames, KeyOutput& output);
+	bool inferVariable(const float* cqtSpectrogram, int numFrames, KeyOutput& output,
+	                   float* probabilities = nullptr);
 
 	// Constants matching the model architecture
 	static constexpr int INPUT_FREQ_BINS = 105;
@@ -98,6 +98,7 @@ private:
 
 	std::vector<const char*> inputNames_;
 	std::vector<const char*> outputNames_;
+	std::vector<float> inputScratch_;
 
 	bool isLoaded_ = false;
 };
@@ -112,6 +113,7 @@ namespace engine {
 struct KeyOutput {
 	int keyIndex = -1;
 	float confidence = 0.0f;
+	float margin = 0.0f;
 	std::string camelot;
 	std::string notation;
 };
@@ -124,7 +126,7 @@ public:
 	bool load(const std::string&) { return false; }
 	bool isReady() const { return false; }
 	bool infer(const float*, KeyOutput&, float* = nullptr) { return false; }
-	bool inferVariable(const float*, int, KeyOutput&) { return false; }
+	bool inferVariable(const float*, int, KeyOutput&, float* = nullptr) { return false; }
 
 	static constexpr int INPUT_FREQ_BINS = 105;
 	static constexpr int INPUT_TIME_FRAMES = 100;

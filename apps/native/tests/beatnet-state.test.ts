@@ -2,12 +2,12 @@ import { describe, expect, it } from "bun:test";
 import { buttonText, shouldReset, statusText } from "../lib/beatnet-state";
 
 describe("buttonText", () => {
-	it("returns loading when initializing", () => {
-		expect(buttonText("initializing", false, false)).toBe("LOADING");
+	it("returns start when not listening", () => {
+		expect(buttonText(false)).toBe("START");
 	});
 
 	it("returns stop when listening", () => {
-		expect(buttonText("listening", false, true)).toBe("STOP");
+		expect(buttonText(true)).toBe("STOP");
 	});
 });
 
@@ -20,6 +20,7 @@ describe("statusText", () => {
 				true,
 				{
 					bpm: 128,
+					bpmConfidence: 0.8,
 					frameCount: 120,
 					beatActivation: 0.5,
 					downbeatActivation: 0.2,

@@ -1,6 +1,6 @@
 CREATE TABLE `detections` (
 	`id` text PRIMARY KEY NOT NULL,
-	`bpm` integer NOT NULL,
+	`bpm` real NOT NULL,
 	`bpm_confidence` real NOT NULL,
 	`key` text NOT NULL,
 	`key_confidence` real NOT NULL,

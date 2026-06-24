@@ -1,14 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { bpmConfidence, buildSave } from "../lib/session-save";
-
-describe("bpmConfidence", () => {
-	it("clamps to expected range", () => {
-		expect(bpmConfidence(0)).toBe(0);
-		expect(bpmConfidence(125)).toBe(0.5);
-		expect(bpmConfidence(250)).toBe(1);
-		expect(bpmConfidence(999)).toBe(1);
-	});
-});
+import { buildSave } from "../lib/session-save";
 
 describe("buildSave", () => {
 	it("skips when session start is missing", () => {
@@ -19,12 +10,9 @@ describe("buildSave", () => {
 			key: null,
 		});
 		expect(result.ok).toBe(false);
-		if (!result.ok) {
-			expect(result.err).toBe("Session not saved: start time missing");
-		}
 	});
 
-	it("skips incomplete detections with explicit reason", () => {
+	it("skips incomplete detections silently", () => {
 		const result = buildSave({
 			now: 10_000,
 			startedAt: 5_000,
@@ -32,9 +20,6 @@ describe("buildSave", () => {
 			key: null,
 		});
 		expect(result.ok).toBe(false);
-		if (!result.ok) {
-			expect(result.err).toBe("Session not saved: requires BPM");
-		}
 	});
 
 	it("builds a persisted row when key is not ready", () => {
@@ -43,6 +28,7 @@ describe("buildSave", () => {
 			startedAt: 5_000,
 			result: {
 				bpm: 128.2,
+				bpmConfidence: 0.42,
 				frameCount: 300,
 				beatActivation: 0.2,
 				downbeatActivation: 0.1,
@@ -51,7 +37,7 @@ describe("buildSave", () => {
 		});
 		expect(result.ok).toBe(true);
 		if (result.ok) {
-			expect(result.row.bpm).toBe(128);
+			expect(result.row.bpm).toBe(128.2);
 			expect(result.row.key).toBe("Unknown");
 			expect(result.row.keyConfidence).toBe(0);
 			expect(result.row.camelotCode).toBe("--");
@@ -64,6 +50,7 @@ describe("buildSave", () => {
 			startedAt: 12_000,
 			result: {
 				bpm: 127.6,
+				bpmConfidence: 0.73,
 				frameCount: 200,
 				beatActivation: 0.5,
 				downbeatActivation: 0.3,
@@ -72,8 +59,8 @@ describe("buildSave", () => {
 		});
 		expect(result.ok).toBe(true);
 		if (result.ok) {
-			expect(result.row.bpm).toBe(128);
-			expect(result.row.bpmConfidence).toBe(0.8);
+			expect(result.row.bpm).toBe(127.6);
+			expect(result.row.bpmConfidence).toBe(0.73);
 			expect(result.row.key).toBe("Am");
 			expect(result.row.keyConfidence).toBe(0.91);
 			expect(result.row.camelotCode).toBe("8A");
@@ -90,6 +77,7 @@ describe("buildSave", () => {
 			startedAt: 0,
 			result: {
 				bpm: 124.8,
+				bpmConfidence: 0.64,
 				frameCount: 150,
 				beatActivation: 0.4,
 				downbeatActivation: 0.2,

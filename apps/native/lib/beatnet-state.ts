@@ -11,13 +11,7 @@ const LISTENING = "LISTENING";
 const ANALYZING = "ANALYZING";
 const WORKING = "WORKING";
 
-export function buttonText(
-	status: DetectionStatus,
-	busy: boolean,
-	listening: boolean,
-): string {
-	if (status === "initializing") return LOADING;
-	if (busy) return "WAIT";
+export function buttonText(listening: boolean): string {
 	if (listening) return "STOP";
 	return "START";
 }

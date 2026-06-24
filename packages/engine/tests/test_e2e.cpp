@@ -22,6 +22,23 @@ using Catch::Approx;
 // Skip all tests if ONNX is not enabled
 #ifdef ONNX_ENABLED
 
+static std::vector<float> generateMajorChord(float duration) {
+    const int total = static_cast<int>(Engine::SAMPLE_RATE * duration);
+    const float freqs[] = {130.81f, 164.81f, 196.00f, 261.63f, 329.63f, 392.00f};
+    std::vector<float> audio(total, 0.0f);
+
+    for (int i = 0; i < total; i++) {
+        const float t = static_cast<float>(i) / Engine::SAMPLE_RATE;
+        for (float freq : freqs) {
+            audio[i] += 0.08f * std::sin(2.0f * M_PI * freq * t);
+            audio[i] += 0.03f * std::sin(2.0f * M_PI * freq * 2.0f * t);
+            audio[i] += 0.015f * std::sin(2.0f * M_PI * freq * 3.0f * t);
+        }
+    }
+
+    return audio;
+}
+
 TEST_CASE("Engine initialization", "[e2e]") {
     Engine engine;
 
@@ -211,6 +228,35 @@ TEST_CASE("Engine dual pipeline processing", "[e2e][key]") {
     REQUIRE(!key.notation.empty());
     REQUIRE(!key.camelot.empty());
     REQUIRE(key.confidence > 0.0f);
+}
+
+TEST_CASE("Engine key detection emits provisional result quickly", "[e2e][key]") {
+    Engine engine;
+
+    std::string keyModelPath = test_utils::getModelsDir() + "keynet.onnx";
+    if (!engine.loadKeyModel(keyModelPath)) {
+        SKIP("MusicalKeyCNN model not available");
+    }
+
+    const float duration = 8.0f;
+    auto audio = generateMajorChord(duration);
+    const int chunkSize = Engine::SAMPLE_RATE / 10;
+    size_t firstFrames = 0;
+
+    for (int offset = 0; offset < static_cast<int>(audio.size()); offset += chunkSize) {
+        const int samples = std::min(chunkSize, static_cast<int>(audio.size()) - offset);
+        engine.processAudio(audio.data() + offset, samples, nullptr, 0);
+
+        const auto key = engine.getKey();
+        if (key.valid) {
+            firstFrames = engine.getKeyFrameCount();
+            break;
+        }
+    }
+
+    INFO("First key frames: " << firstFrames);
+    REQUIRE(firstFrames > 0);
+    REQUIRE(firstFrames <= static_cast<size_t>(Engine::KEY_FAST_FRAMES + Engine::KEY_INFERENCE_INTERVAL));
 }
 
 #else // !ONNX_ENABLED

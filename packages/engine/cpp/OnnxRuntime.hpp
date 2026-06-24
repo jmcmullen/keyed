@@ -2,7 +2,6 @@
 
 #ifdef ONNX_ENABLED
 
-// Forward declare ONNX Runtime types
 struct OrtApi;
 struct OrtEnv;
 struct OrtMemoryInfo;
@@ -47,7 +46,6 @@ public:
 	 */
 	bool isInitialized() const { return initialized_; }
 
-	// Non-copyable
 	OnnxRuntime(const OnnxRuntime&) = delete;
 	OnnxRuntime& operator=(const OnnxRuntime&) = delete;
 

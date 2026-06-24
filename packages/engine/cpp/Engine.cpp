@@ -18,7 +18,7 @@ Engine::Engine()
 	// Pre-allocate 4-minute rolling CQT ring buffer (1200 frames at 5 FPS)
 	cqtBuffer_.resize(CqtConfig::N_BINS * KEY_MAX_FRAMES, 0.0f);
 	cqtScratch_.resize(CqtConfig::N_BINS * MAX_CQT_FRAMES_PER_PUSH, 0.0f);
-	cqtInferenceBuffer_.resize(CqtConfig::N_BINS * KEY_MAX_FRAMES, 0.0f);
+	cqtInferenceBuffer_.resize(CqtConfig::N_BINS * KEY_STABLE_FRAMES, 0.0f);
 
 	// Pre-allocate resample buffer (generous size for typical audio chunks)
 	resampleBuffer_.resize(44100);
@@ -45,12 +45,9 @@ void Engine::reset() {
 	cqtWindowFrameCount_ = 0;
 	cqtFramesSinceInference_ = 0;
 	keyInferenceCount_ = 0;
+	keySmoother_.reset();
 	currentKey_ = {"", "", 0.0f, false};
 }
-
-// =============================================================================
-// BPM Detection (BeatNet)
-// =============================================================================
 
 bool Engine::loadModel(const std::string& modelPath) {
 	if (!beatnetModel_) {
@@ -88,13 +85,13 @@ float Engine::getBpm() const {
 	return activationBuffer_.getCachedBpm();
 }
 
+float Engine::getBpmConfidence() const {
+	return activationBuffer_.getBpmConfidence();
+}
+
 size_t Engine::getFrameCount() const {
 	return activationBuffer_.size();
 }
-
-// =============================================================================
-// Key Detection (MusicalKeyCNN)
-// =============================================================================
 
 bool Engine::loadKeyModel(const std::string& modelPath) {
 	if (!keyModel_) {
@@ -131,80 +128,115 @@ size_t Engine::getKeyFrameCount() const {
 	return cqtFrameCount_;
 }
 
-void Engine::runKeyInference() {
+bool Engine::copyLatestCqtFrames(int frames) {
+	if (frames <= 0 || cqtWindowFrameCount_ < static_cast<size_t>(frames)) {
+		return false;
+	}
+	const int bins = CqtConfig::N_BINS;
+
+	if (cqtWindowFrameCount_ < KEY_MAX_FRAMES) {
+		const size_t start = cqtWindowFrameCount_ - static_cast<size_t>(frames);
+		const float* src = &cqtBuffer_[start * bins];
+		std::copy(src, src + static_cast<size_t>(frames) * bins, cqtInferenceBuffer_.data());
+		return true;
+	}
+
+	const size_t start = (cqtHead_ + KEY_MAX_FRAMES - static_cast<size_t>(frames)) % KEY_MAX_FRAMES;
+	for (int i = 0; i < frames; i++) {
+		const size_t src = (start + static_cast<size_t>(i)) % KEY_MAX_FRAMES;
+		const float* srcFrame = &cqtBuffer_[src * bins];
+		float* dstFrame = &cqtInferenceBuffer_[static_cast<size_t>(i) * bins];
+		std::copy(srcFrame, srcFrame + bins, dstFrame);
+	}
+	return true;
+}
+
+void Engine::runKeyInference(int frames, KeyWindow window) {
+	if (!isKeyReady() || !copyLatestCqtFrames(frames)) {
+		return;
+	}
+
+	KeyOutput output;
+	if (keyModel_->inferVariable(cqtInferenceBuffer_.data(), frames, output)) {
+		KeySmootherInput input;
+		input.keyIndex = output.keyIndex;
+		input.confidence = output.confidence;
+		input.margin = output.margin;
+		input.camelot = output.camelot;
+		input.notation = output.notation;
+		input.window = window;
+
+		const auto result = keySmoother_.push(input, cqtFrameCount_);
+		if (result.valid) {
+			currentKey_.camelot = result.camelot;
+			currentKey_.notation = result.notation;
+			currentKey_.confidence = result.confidence;
+			currentKey_.valid = true;
+		}
+	}
+}
+
+void Engine::runKeyInferences() {
 	if (!isKeyReady() || cqtFrameCount_ < KEY_MIN_FRAMES || cqtWindowFrameCount_ == 0) {
 		return;
 	}
 
-	const int bins = CqtConfig::N_BINS;
-	const int frames = static_cast<int>(cqtWindowFrameCount_);
-	const float* input = cqtBuffer_.data();
-
-	if (cqtWindowFrameCount_ == KEY_MAX_FRAMES) {
-		for (size_t i = 0; i < KEY_MAX_FRAMES; i++) {
-			size_t src = (cqtHead_ + i) % KEY_MAX_FRAMES;
-			const float* srcFrame = &cqtBuffer_[src * bins];
-			float* dstFrame = &cqtInferenceBuffer_[i * bins];
-			std::copy(srcFrame, srcFrame + bins, dstFrame);
-		}
-		input = cqtInferenceBuffer_.data();
+	runKeyInference(KEY_FAST_FRAMES, KeyWindow::Fast);
+	if (cqtWindowFrameCount_ >= KEY_LIVE_FRAMES) {
+		runKeyInference(KEY_LIVE_FRAMES, KeyWindow::Live);
+	}
+	if (cqtWindowFrameCount_ >= KEY_STABLE_FRAMES) {
+		runKeyInference(KEY_STABLE_FRAMES, KeyWindow::Stable);
 	}
 
-	KeyOutput output;
-	if (keyModel_->inferVariable(input, frames, output)) {
-		keyInferenceCount_++;
-		cqtFramesSinceInference_ = 0;
-		currentKey_.camelot = output.camelot;
-		currentKey_.notation = output.notation;
-		currentKey_.confidence = output.confidence;
-		currentKey_.valid = true;
-	}
+	keyInferenceCount_++;
+	cqtFramesSinceInference_ = 0;
 }
-
-// =============================================================================
-// Audio Processing
-// =============================================================================
 
 int Engine::processAudio(const float* samples, int numSamples,
                          FrameResult* outResults, int maxResults) {
-	// -------------------------------------------------------------------------
-	// Key Detection Pipeline (44100 Hz)
-	// -------------------------------------------------------------------------
-	if (isKeyReady()) {
-		int cqtProduced = cqtExtractor_->push(samples, numSamples,
-		                                       cqtScratch_.data(), MAX_CQT_FRAMES_PER_PUSH);
+	if (samples == nullptr || numSamples <= 0) {
+		return 0;
+	}
 
+	// Key Detection Pipeline (44100 Hz)
+	if (isKeyReady()) {
 		// Append CQT frames into a fixed 4-minute rolling ring window.
 		const size_t bins = static_cast<size_t>(CqtConfig::N_BINS);
-		for (int i = 0; i < cqtProduced; i++) {
-			const float* src = &cqtScratch_[i * CqtConfig::N_BINS];
-			if (cqtWindowFrameCount_ < KEY_MAX_FRAMES) {
-				float* dst = &cqtBuffer_[cqtWindowFrameCount_ * CqtConfig::N_BINS];
-				std::copy(src, src + CqtConfig::N_BINS, dst);
-				cqtWindowFrameCount_++;
-				cqtHead_ = cqtWindowFrameCount_ % KEY_MAX_FRAMES;
-			} else {
-				float* dst = &cqtBuffer_[cqtHead_ * bins];
-				std::copy(src, src + CqtConfig::N_BINS, dst);
-				cqtHead_ = (cqtHead_ + 1) % KEY_MAX_FRAMES;
+		for (int offset = 0; offset < numSamples; offset += MAX_CQT_SAMPLES_PER_PUSH) {
+			const int chunk = std::min(MAX_CQT_SAMPLES_PER_PUSH, numSamples - offset);
+			const int cqtProduced = cqtExtractor_->push(
+				samples + offset, chunk, cqtScratch_.data(), MAX_CQT_FRAMES_PER_PUSH
+			);
+
+			for (int i = 0; i < cqtProduced; i++) {
+				const float* src = &cqtScratch_[i * CqtConfig::N_BINS];
+				if (cqtWindowFrameCount_ < KEY_MAX_FRAMES) {
+					float* dst = &cqtBuffer_[cqtWindowFrameCount_ * CqtConfig::N_BINS];
+					std::copy(src, src + CqtConfig::N_BINS, dst);
+					cqtWindowFrameCount_++;
+					cqtHead_ = cqtWindowFrameCount_ % KEY_MAX_FRAMES;
+				} else {
+					float* dst = &cqtBuffer_[cqtHead_ * bins];
+					std::copy(src, src + CqtConfig::N_BINS, dst);
+					cqtHead_ = (cqtHead_ + 1) % KEY_MAX_FRAMES;
+				}
+				cqtFrameCount_++;
+				cqtFramesSinceInference_++;
 			}
-			cqtFrameCount_++;
-			cqtFramesSinceInference_++;
 		}
 
-		// Run inference when we have minimum frames, then every N new frames
-		bool hasMinFrames = cqtFrameCount_ >= KEY_MIN_FRAMES;
-		bool shouldRunInference = hasMinFrames &&
+		// Run a fast provisional inference first, then refresh roughly once per second.
+		const bool hasMinFrames = cqtFrameCount_ >= KEY_MIN_FRAMES;
+		const bool shouldRunInference = hasMinFrames &&
 			(keyInferenceCount_ == 0 || cqtFramesSinceInference_ >= KEY_INFERENCE_INTERVAL);
 
 		if (shouldRunInference) {
-			runKeyInference();
+			runKeyInferences();
 		}
 	}
 
-	// -------------------------------------------------------------------------
 	// BPM Detection Pipeline (resample 44100 -> 22050 Hz)
-	// -------------------------------------------------------------------------
 	if (!isReady()) {
 		return 0;
 	}

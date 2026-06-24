@@ -29,16 +29,10 @@
 
 namespace engine {
 
-// ============================================================================
-// Key Mapping Tables
-// ============================================================================
-
 // Camelot notation mapping - matches MusicalKeyCNN's CAMELOT_MAPPING from dataset.py
 // The model outputs indices in Camelot wheel order, NOT chromatic order!
-//
 // Index 0-11: Minor keys in Camelot order (1A through 12A)
 // Index 12-23: Major keys in Camelot order (1B through 12B)
-//
 // Camelot wheel:
 // Minor (A): 1A=G#m, 2A=Ebm, 3A=Bbm, 4A=Fm, 5A=Cm, 6A=Gm, 7A=Dm, 8A=Am, 9A=Em, 10A=Bm, 11A=F#m, 12A=C#m
 // Major (B): 1B=B,   2B=F#,  3B=Db,  4B=Ab, 5B=Eb, 6B=Bb, 7B=F,  8B=C,  9B=G,  10B=D,  11B=A,   12B=E
@@ -100,10 +94,6 @@ const char* const KeyModel::NOTATION_KEYS[NUM_CLASSES] = {
 	"A",    // 22: 11B
 	"E",    // 23: 12B
 };
-
-// ============================================================================
-// KeyModel Implementation
-// ============================================================================
 
 KeyModel::KeyModel() {
 	inputNames_ = {"input"};
@@ -294,16 +284,21 @@ bool KeyModel::infer(const float* cqtSpectrogram, KeyOutput& output, float* prob
 	// Find predicted class (argmax)
 	int predictedClass = 0;
 	float maxProb = logits[0];
+	float nextProb = 0.0f;
 	for (int i = 1; i < NUM_CLASSES; i++) {
 		if (logits[i] > maxProb) {
+			nextProb = maxProb;
 			maxProb = logits[i];
 			predictedClass = i;
+		} else if (logits[i] > nextProb) {
+			nextProb = logits[i];
 		}
 	}
 
 	// Fill output
 	output.keyIndex = predictedClass;
 	output.confidence = maxProb;
+	output.margin = maxProb - nextProb;
 	output.camelot = CAMELOT_KEYS[predictedClass];
 	output.notation = NOTATION_KEYS[predictedClass];
 
@@ -315,7 +310,8 @@ bool KeyModel::infer(const float* cqtSpectrogram, KeyOutput& output, float* prob
 	return true;
 }
 
-bool KeyModel::inferVariable(const float* cqtSpectrogram, int numFrames, KeyOutput& output) {
+bool KeyModel::inferVariable(const float* cqtSpectrogram, int numFrames, KeyOutput& output,
+                             float* probabilities) {
 	if (!isReady()) {
 		LOGE("Model not ready\n");
 		return false;
@@ -331,10 +327,11 @@ bool KeyModel::inferVariable(const float* cqtSpectrogram, int numFrames, KeyOutp
 
 	// Input arrives in row-major [time][freq] from Engine.
 	// Transpose to [freq][time] for ONNX input tensor shape [1, 1, freq, time].
-	std::vector<float> transposed(INPUT_FREQ_BINS * numFrames);
+	inputScratch_.resize(static_cast<size_t>(INPUT_FREQ_BINS) * static_cast<size_t>(numFrames));
 	for (int t = 0; t < numFrames; t++) {
 		for (int f = 0; f < INPUT_FREQ_BINS; f++) {
-			transposed[f * numFrames + t] = cqtSpectrogram[t * INPUT_FREQ_BINS + f];
+			inputScratch_[static_cast<size_t>(f * numFrames + t)] =
+				cqtSpectrogram[t * INPUT_FREQ_BINS + f];
 		}
 	}
 
@@ -345,7 +342,7 @@ bool KeyModel::inferVariable(const float* cqtSpectrogram, int numFrames, KeyOutp
 	OrtValue* inputTensor = nullptr;
 	status = api_->CreateTensorWithDataAsOrtValue(
 		runtime.memoryInfo(),
-		transposed.data(),
+		inputScratch_.data(),
 		inputSize,
 		inputShape,
 		4,
@@ -405,17 +402,26 @@ bool KeyModel::inferVariable(const float* cqtSpectrogram, int numFrames, KeyOutp
 	// Find predicted class
 	int predictedClass = 0;
 	float maxProb = logits[0];
+	float nextProb = 0.0f;
 	for (int i = 1; i < NUM_CLASSES; i++) {
 		if (logits[i] > maxProb) {
+			nextProb = maxProb;
 			maxProb = logits[i];
 			predictedClass = i;
+		} else if (logits[i] > nextProb) {
+			nextProb = logits[i];
 		}
 	}
 
 	output.keyIndex = predictedClass;
 	output.confidence = maxProb;
+	output.margin = maxProb - nextProb;
 	output.camelot = CAMELOT_KEYS[predictedClass];
 	output.notation = NOTATION_KEYS[predictedClass];
+
+	if (probabilities != nullptr) {
+		std::memcpy(probabilities, logits, NUM_CLASSES * sizeof(float));
+	}
 
 	return true;
 }

@@ -31,8 +31,8 @@
 using namespace engine;
 
 // Constants
-constexpr int TARGET_SAMPLE_RATE = 22050;
-constexpr int HOP_LENGTH = 441;  // 20ms per frame at 22050Hz
+constexpr int TARGET_SAMPLE_RATE = Engine::SAMPLE_RATE;
+constexpr int HOP_LENGTH = Engine::SAMPLE_RATE / 50;  // 20ms per frame at 44100Hz
 constexpr float FRAME_DURATION_MS = 1000.0f * HOP_LENGTH / TARGET_SAMPLE_RATE;  // 20ms
 constexpr float PEAK_THRESHOLD = 0.4f;  // Minimum activation to consider a beat
 constexpr float PEAK_MIN_DISTANCE_MS = 200.0f;  // Minimum 200ms between peaks (~300 BPM max)
@@ -193,7 +193,6 @@ LatencyResult measureLatency(const std::string& filepath, Engine& engine) {
 	result.minLatencyMs = 0;
 	result.maxLatencyMs = 0;
 
-	// Initialize decoder
 	ma_decoder_config decoderConfig = ma_decoder_config_init(ma_format_f32, 1, TARGET_SAMPLE_RATE);
 	ma_decoder decoder;
 
@@ -202,14 +201,12 @@ LatencyResult measureLatency(const std::string& filepath, Engine& engine) {
 		return result;
 	}
 
-	// Reset engine
 	engine.reset();
 
-	// Collect all activations
 	std::vector<float> beatActivations;
 	std::vector<float> downbeatActivations;
 
-	constexpr int CHUNK_SIZE = 441;
+	constexpr int CHUNK_SIZE = HOP_LENGTH;
 	float buffer[CHUNK_SIZE];
 	static constexpr int MAX_RESULTS = 8;
 	Engine::FrameResult results[MAX_RESULTS];
@@ -227,14 +224,12 @@ LatencyResult measureLatency(const std::string& filepath, Engine& engine) {
 
 	ma_decoder_uninit(&decoder);
 
-	// Get detected BPM
 	result.detectedBpm = engine.getBpm();
 
 	if (beatActivations.empty() || result.detectedBpm <= 0) {
 		return result;
 	}
 
-	// Find beat peaks
 	std::vector<BeatPeak> peaks = findBeatPeaks(beatActivations);
 	result.numPeaksDetected = static_cast<int>(peaks.size());
 
@@ -242,20 +237,15 @@ LatencyResult measureLatency(const std::string& filepath, Engine& engine) {
 		return result;
 	}
 
-	// Generate expected beat positions using detected BPM
 	float durationMs = beatActivations.size() * FRAME_DURATION_MS;
 	float beatIntervalMs = 60000.0f / result.detectedBpm;
 
-	// Find best phase alignment
 	std::vector<float> expectedBeats = generateExpectedBeats(result.detectedBpm, durationMs, 0);
 	float phaseOffset = findBestPhaseOffset(peaks, expectedBeats, beatIntervalMs);
 
-	// Regenerate expected beats with phase offset
 	expectedBeats = generateExpectedBeats(result.detectedBpm, durationMs, phaseOffset);
 
-	// Calculate latency for each detected peak
 	for (const auto& peak : peaks) {
-		// Find nearest expected beat
 		float minLatency = std::numeric_limits<float>::max();
 
 		for (float expectedTime : expectedBeats) {
@@ -276,7 +266,6 @@ LatencyResult measureLatency(const std::string& filepath, Engine& engine) {
 
 	result.numPeaksMatched = static_cast<int>(result.latencies.size());
 
-	// Calculate statistics
 	if (!result.latencies.empty()) {
 		float sum = std::accumulate(result.latencies.begin(), result.latencies.end(), 0.0f);
 		result.avgLatencyMs = sum / result.latencies.size();
@@ -284,7 +273,6 @@ LatencyResult measureLatency(const std::string& filepath, Engine& engine) {
 		result.minLatencyMs = *std::min_element(result.latencies.begin(), result.latencies.end());
 		result.maxLatencyMs = *std::max_element(result.latencies.begin(), result.latencies.end());
 
-		// Standard deviation
 		float sqSum = 0;
 		for (float lat : result.latencies) {
 			sqSum += (lat - result.avgLatencyMs) * (lat - result.avgLatencyMs);
@@ -323,7 +311,6 @@ std::vector<std::string> getAudioFiles(const std::string& path) {
 }
 
 int main() {
-	// Load model
 	Engine engine;
 	std::string modelPath = getModelPath();
 	if (!engine.loadModel(modelPath)) {
@@ -331,10 +318,8 @@ int main() {
 		return 1;
 	}
 
-	// Warm up
 	engine.warmUp();
 
-	// Get audio files
 	std::vector<std::string> files = getAudioFiles(getTestDataPath());
 	if (files.empty()) {
 		fprintf(stderr, "Error: No audio files found in %s\n", getTestDataPath().c_str());
@@ -361,11 +346,9 @@ int main() {
 		LatencyResult result = measureLatency(file, engine);
 		results.push_back(result);
 
-		// Collect all latencies for global stats
 		allLatencies.insert(allLatencies.end(),
 			result.latencies.begin(), result.latencies.end());
 
-		// Display filename
 		std::string displayName = file;
 		size_t lastSlash = file.find_last_of("/\\");
 		if (lastSlash != std::string::npos) {

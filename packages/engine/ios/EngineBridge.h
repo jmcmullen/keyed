@@ -32,9 +32,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)reset;
 
-// =========================================================================
 // BPM Detection (BeatNet)
-// =========================================================================
 
 /**
  * Load BeatNet ONNX model
@@ -59,13 +57,16 @@ NS_ASSUME_NONNULL_BEGIN
 - (float)getBpm;
 
 /**
+ * Get BPM confidence (0-1)
+ */
+- (float)getBpmConfidence;
+
+/**
  * Get number of BPM frames processed
  */
 - (NSUInteger)getFrameCount;
 
-// =========================================================================
 // Key Detection (MusicalKeyCNN)
-// =========================================================================
 
 /**
  * Load MusicalKeyCNN ONNX model
@@ -94,9 +95,7 @@ NS_ASSUME_NONNULL_BEGIN
  */
 - (NSUInteger)getKeyFrameCount;
 
-// =========================================================================
 // Audio Processing
-// =========================================================================
 
 /**
  * Process audio samples at 44100 Hz (native sample rate)

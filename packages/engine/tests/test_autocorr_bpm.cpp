@@ -12,7 +12,6 @@
 #include <vector>
 
 using namespace engine;
-using Catch::Approx;
 
 TEST_CASE("AutocorrBpmEstimator constants", "[bpm][constants]") {
 	REQUIRE(AutocorrBpmEstimator::FPS == 50.0f);
@@ -77,7 +76,7 @@ TEST_CASE("AutocorrBpmEstimator detects 120 BPM", "[bpm][accuracy]") {
 	auto [beats, downbeats] = generateBeatPattern(targetBpm, numFrames);
 
 	float detectedBpm = AutocorrBpmEstimator::estimate(
-		beats.data(), downbeats.data(), numFrames, false);
+		beats.data(), downbeats.data(), numFrames);
 
 	INFO("Target BPM: " << targetBpm);
 	INFO("Detected BPM: " << detectedBpm);
@@ -89,73 +88,72 @@ TEST_CASE("AutocorrBpmEstimator detects 120 BPM", "[bpm][accuracy]") {
 TEST_CASE("AutocorrBpmEstimator detects various tempos", "[bpm][accuracy]") {
 	const size_t numFrames = 400;  // 8 seconds
 
-	// Test tempos in DJ range (octave correction won't change them)
 	std::vector<float> testBpms = {80.0f, 100.0f, 120.0f, 128.0f, 140.0f};
 
 	for (float targetBpm : testBpms) {
 		DYNAMIC_SECTION("detects " << targetBpm << " BPM") {
 			auto [beats, downbeats] = generateBeatPattern(targetBpm, numFrames);
 
-			// Test WITH octave correction (more realistic)
 			float detectedBpm = AutocorrBpmEstimator::estimate(
-				beats.data(), downbeats.data(), numFrames, true);
+				beats.data(), downbeats.data(), numFrames);
 
 			INFO("Target BPM: " << targetBpm);
 			INFO("Detected BPM: " << detectedBpm);
 
-			// Should be within 2 BPM of target (with octave correction)
 			REQUIRE(std::abs(detectedBpm - targetBpm) <= 2.0f);
 		}
 	}
 }
 
-TEST_CASE("AutocorrBpmEstimator octave correction", "[bpm][octave]") {
+TEST_CASE("AutocorrBpmEstimator corrects half-time into DJ range", "[bpm][octave]") {
+	const float halfTimeBpm = 63.5f;
+	const float targetBpm = 127.0f;
+	const size_t numFrames = 500;
+
+	auto [beats, downbeats] = generateBeatPattern(halfTimeBpm, numFrames);
+
+	float detectedBpm = AutocorrBpmEstimator::estimate(
+		beats.data(), downbeats.data(), numFrames);
+
+	INFO("Half-time BPM: " << halfTimeBpm);
+	INFO("Detected BPM: " << detectedBpm);
+
+	REQUIRE(std::abs(detectedBpm - targetBpm) <= 2.0f);
+}
+
+TEST_CASE("AutocorrBpmEstimator preserves fractional tempo", "[bpm][accuracy]") {
+	const float targetBpm = 126.5f;
+	const size_t numFrames = 500;
+
+	auto [beats, downbeats] = generateBeatPattern(targetBpm, numFrames);
+
+	float detectedBpm = AutocorrBpmEstimator::estimate(
+		beats.data(), downbeats.data(), numFrames);
+
+	INFO("Target BPM: " << targetBpm);
+	INFO("Detected BPM: " << detectedBpm);
+
+	REQUIRE(std::abs(detectedBpm - targetBpm) <= 2.0f);
+	REQUIRE(std::abs(detectedBpm - std::round(detectedBpm)) > 0.01f);
+}
+
+TEST_CASE("AutocorrBpmEstimator reports confidence for periodic activations", "[bpm][confidence]") {
 	const size_t numFrames = 400;
+	auto [beats, downbeats] = generateBeatPattern(127.0f, numFrames);
 
-	SECTION("doubles 60 BPM to DJ range") {
-		auto [beats, downbeats] = generateBeatPattern(60.0f, numFrames);
+	const auto detected = AutocorrBpmEstimator::estimateWithConfidence(
+		beats.data(), downbeats.data(), numFrames);
 
-		float withCorrection = AutocorrBpmEstimator::estimate(
-			beats.data(), downbeats.data(), numFrames, true);
+	std::vector<float> flatBeats(numFrames, 0.2f);
+	std::vector<float> flatDownbeats(numFrames, 0.1f);
+	const auto flat = AutocorrBpmEstimator::estimateWithConfidence(
+		flatBeats.data(), flatDownbeats.data(), numFrames);
 
-		float withoutCorrection = AutocorrBpmEstimator::estimate(
-			beats.data(), downbeats.data(), numFrames, false);
-
-		INFO("With correction: " << withCorrection);
-		INFO("Without correction: " << withoutCorrection);
-
-		// With correction should double to ~120 BPM (in DJ range)
-		REQUIRE(withCorrection == Approx(withoutCorrection * 2.0f).margin(2.0f));
-	}
-
-	SECTION("halves 180 BPM to DJ range") {
-		auto [beats, downbeats] = generateBeatPattern(180.0f, numFrames);
-
-		float withCorrection = AutocorrBpmEstimator::estimate(
-			beats.data(), downbeats.data(), numFrames, true);
-
-		float withoutCorrection = AutocorrBpmEstimator::estimate(
-			beats.data(), downbeats.data(), numFrames, false);
-
-		INFO("With correction: " << withCorrection);
-		INFO("Without correction: " << withoutCorrection);
-
-		// With correction should halve to ~90 BPM (in DJ range)
-		REQUIRE(withCorrection == Approx(withoutCorrection / 2.0f).margin(2.0f));
-	}
-
-	SECTION("120 BPM unchanged (already in range)") {
-		auto [beats, downbeats] = generateBeatPattern(120.0f, numFrames);
-
-		float withCorrection = AutocorrBpmEstimator::estimate(
-			beats.data(), downbeats.data(), numFrames, true);
-
-		float withoutCorrection = AutocorrBpmEstimator::estimate(
-			beats.data(), downbeats.data(), numFrames, false);
-
-		// Should be the same
-		REQUIRE(withCorrection == Approx(withoutCorrection).margin(1.0f));
-	}
+	REQUIRE(detected.bpm > 0.0f);
+	REQUIRE(detected.confidence > 0.0f);
+	REQUIRE(detected.confidence <= 1.0f);
+	REQUIRE(flat.bpm == 0.0f);
+	REQUIRE(flat.confidence == 0.0f);
 }
 
 TEST_CASE("ActivationBuffer basic operations", "[bpm][buffer]") {
@@ -164,6 +162,7 @@ TEST_CASE("ActivationBuffer basic operations", "[bpm][buffer]") {
 	SECTION("starts empty") {
 		REQUIRE(buffer.size() == 0);
 		REQUIRE(buffer.getCachedBpm() == 0.0f);
+		REQUIRE(buffer.getBpmConfidence() == 0.0f);
 	}
 
 	SECTION("push increases size") {
@@ -183,6 +182,7 @@ TEST_CASE("ActivationBuffer basic operations", "[bpm][buffer]") {
 		buffer.clear();
 		REQUIRE(buffer.size() == 0);
 		REQUIRE(buffer.getCachedBpm() == 0.0f);
+		REQUIRE(buffer.getBpmConfidence() == 0.0f);
 	}
 }
 
@@ -237,6 +237,30 @@ TEST_CASE("ActivationBuffer auto-computes BPM", "[bpm][buffer][auto]") {
 	// Should have a valid BPM cached
 	REQUIRE(cachedBpm > 0.0f);
 	REQUIRE(std::abs(cachedBpm - targetBpm) <= 2.0f);
+	REQUIRE(buffer.getBpmConfidence() > 0.0f);
+	REQUIRE(buffer.getBpmConfidence() < 1.0f);
+}
+
+TEST_CASE("ActivationBuffer holds small decimal jitter", "[bpm][buffer][stability]") {
+	ActivationBuffer buffer;
+
+	auto [beats, downbeats] = generateBeatPattern(127.1f, 250);
+	for (size_t i = 0; i < beats.size(); i++) {
+		buffer.push(beats[i], downbeats[i]);
+	}
+	const float initial = buffer.getCachedBpm();
+
+	auto [jitterBeats, jitterDownbeats] = generateBeatPattern(127.3f, 125);
+	for (size_t i = 0; i < jitterBeats.size(); i++) {
+		buffer.push(jitterBeats[i], jitterDownbeats[i]);
+	}
+	const float updated = buffer.getCachedBpm();
+
+	INFO("Initial BPM: " << initial);
+	INFO("Updated BPM: " << updated);
+
+	REQUIRE(initial > 0.0f);
+	REQUIRE(std::abs(updated - initial) <= 0.35f);
 }
 
 TEST_CASE("ActivationBuffer ring buffer ordering", "[bpm][buffer][ring]") {

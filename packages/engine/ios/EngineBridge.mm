@@ -51,7 +51,6 @@
 		return YES;
 	}
 
-	// Use C++ try/catch for C++ exceptions
 	try {
 		_engine = new engine::Engine();
 		_resultBuffer.resize(200);
@@ -91,10 +90,6 @@
 		NSLog(@"[EngineBridge] reset failed with unknown exception");
 	}
 }
-
-// =============================================================================
-// BPM Detection (BeatNet)
-// =============================================================================
 
 - (BOOL)loadModel:(NSString *)modelPath {
 		try {
@@ -151,6 +146,15 @@
 	}
 }
 
+- (float)getBpmConfidence {
+	try {
+		std::lock_guard<std::mutex> lock(_engineMutex);
+		return _engine ? _engine->getBpmConfidence() : 0.0f;
+	} catch (...) {
+		return 0.0f;
+	}
+}
+
 - (NSUInteger)getFrameCount {
 	try {
 		std::lock_guard<std::mutex> lock(_engineMutex);
@@ -159,10 +163,6 @@
 		return 0;
 	}
 }
-
-// =============================================================================
-// Key Detection (MusicalKeyCNN)
-// =============================================================================
 
 - (BOOL)loadKeyModel:(NSString *)modelPath {
 		try {
@@ -251,10 +251,6 @@
 	}
 }
 
-// =============================================================================
-// Audio Processing
-// =============================================================================
-
 - (nullable NSArray<EngineFrameResult *> *)processAudio:(NSArray<NSNumber *> *)samples {
 		try {
 			std::vector<float> floatSamples(samples.count);
@@ -278,7 +274,6 @@
 				return @[];
 			}
 
-		// Convert to NSArray of EngineFrameResult
 		NSMutableArray<EngineFrameResult *> *results = [NSMutableArray arrayWithCapacity:numResults];
 		for (int i = 0; i < numResults; i++) {
 			EngineFrameResult *result = [[EngineFrameResult alloc] init];
@@ -361,7 +356,6 @@
 				return @[];
 			}
 
-		// Convert to NSArray of EngineFrameResult
 		NSMutableArray<EngineFrameResult *> *results = [NSMutableArray arrayWithCapacity:numResults];
 		for (int i = 0; i < numResults; i++) {
 			EngineFrameResult *result = [[EngineFrameResult alloc] init];
@@ -380,10 +374,7 @@
 	}
 }
 
-// =============================================================================
-// Class Properties (Constants)
 // Note: These are hardcoded to avoid C++ static initialization issues in release builds
-// =============================================================================
 
 + (int)sampleRate {
 	return 44100;

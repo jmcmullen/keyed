@@ -10,7 +10,6 @@ export interface SaveInput {
 
 type SaveSkip = {
 	ok: false;
-	err: string;
 };
 
 type SaveReady = {
@@ -20,18 +19,12 @@ type SaveReady = {
 
 export type SaveDecision = SaveSkip | SaveReady;
 
-export function bpmConfidence(frames: number): number {
-	if (frames <= 0) return 0;
-	if (frames >= 250) return 1;
-	return frames / 250;
-}
-
 export function buildSave(input: SaveInput): SaveDecision {
 	if (input.startedAt === null) {
-		return { ok: false, err: "Session not saved: start time missing" };
+		return { ok: false };
 	}
 	if (!input.result?.bpm) {
-		return { ok: false, err: "Session not saved: requires BPM" };
+		return { ok: false };
 	}
 	const duration = Math.max(
 		1,
@@ -41,8 +34,8 @@ export function buildSave(input: SaveInput): SaveDecision {
 	return {
 		ok: true,
 		row: {
-			bpm: Math.round(input.result.bpm),
-			bpmConfidence: bpmConfidence(input.result.frameCount),
+			bpm: input.result.bpm,
+			bpmConfidence: input.result.bpmConfidence,
 			key: key?.notation || "Unknown",
 			keyConfidence: key?.confidence || 0,
 			camelotCode: key?.camelot || "--",

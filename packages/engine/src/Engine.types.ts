@@ -1,7 +1,3 @@
-/**
- * Engine module types
- */
-
 export interface FrameResult {
 	/** Beat activation from ONNX model (0-1) */
 	beatActivation: number;
@@ -23,7 +19,7 @@ export interface KeyResult {
 export interface ProcessResult {
 	/** Detected beat type, or null if no beat */
 	beat: "beat" | "downbeat" | null;
-	/** Current BPM estimate */
+	/** Current BPM estimate with decimal precision */
 	bpm: number;
 	/** Current phase in the beat cycle (0-1) */
 	phase: number;
@@ -55,6 +51,15 @@ export interface State {
 	timestamp: number;
 }
 
+export interface VisualState {
+	/** Beat activation from ONNX model (0-1), emitted for low-latency visuals */
+	beatActivation: number;
+	/** Downbeat activation from ONNX model (0-1), emitted for low-latency visuals */
+	downbeatActivation: number;
+	/** Timestamp in seconds since recording started */
+	timestamp: number;
+}
+
 export interface WaveformData {
 	/** Audio samples for visualization (downsampled) */
 	samples: number[];
@@ -70,11 +75,19 @@ export interface WaveformData {
 	high: number;
 }
 
+export type EngineDebugValue = boolean | number | string | null;
+
+export interface EngineDebugState {
+	[key: string]: EngineDebugValue;
+}
+
 export type EngineModuleEvents = {
 	/** Fired with latest beat/downbeat state (bridge-throttled, ~20 Hz) */
 	onState: (event: State) => void;
+	/** Fired with lightweight beat/downbeat data for low-latency visuals */
+	onVisual: (event: VisualState) => void;
 	/** Fired with waveform data for visualization (bridge-throttled, ~12 Hz) */
 	onWaveform: (event: WaveformData) => void;
-	/** Fired when key detection updates (~every 10 seconds) */
+	/** Fired when key detection updates after the initial key window fills */
 	onKey: (event: KeyResult) => void;
 };

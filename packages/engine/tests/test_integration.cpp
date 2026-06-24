@@ -23,6 +23,7 @@ TEST_CASE("Engine initialization", "[integration]") {
     SECTION("initial state is valid") {
         // BPM should be 0 before any processing
         REQUIRE(engine.getBpm() == 0.0f);
+        REQUIRE(engine.getBpmConfidence() == 0.0f);
         REQUIRE(engine.getFrameCount() == 0);
     }
 }
@@ -43,6 +44,7 @@ TEST_CASE("Engine reset", "[integration]") {
 
     // Should be back to initial state
     REQUIRE(engine.getFrameCount() == 0);
+    REQUIRE(engine.getBpmConfidence() == 0.0f);
 }
 
 TEST_CASE("StreamingMelExtractor produces features", "[integration]") {

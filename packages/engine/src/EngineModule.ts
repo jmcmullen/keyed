@@ -1,26 +1,20 @@
 import { NativeModule, requireNativeModule } from "expo";
 import type {
 	EngineConstants,
+	EngineDebugState,
 	EngineModuleEvents,
 	FrameResult,
 	KeyResult,
-	State,
-	WaveformData,
 } from "./Engine.types";
 
 interface EventSubscription {
 	remove(): void;
 }
 
-type EngineEventName = "onState" | "onWaveform" | "onKey";
-
-type EngineEventPayload<T extends EngineEventName> = T extends "onState"
-	? State
-	: T extends "onWaveform"
-		? WaveformData
-		: T extends "onKey"
-			? KeyResult
-			: never;
+type EngineEventName = keyof EngineModuleEvents;
+type EngineEventPayload<T extends EngineEventName> = Parameters<
+	EngineModuleEvents[T]
+>[0];
 
 declare class EngineNativeModule
 	extends NativeModule<EngineModuleEvents>
@@ -41,9 +35,7 @@ declare class EngineNativeModule
 	/** Reset processing state for both BPM and key detection */
 	reset(): void;
 
-	// =========================================================================
 	// BPM Detection (BeatNet)
-	// =========================================================================
 
 	/**
 	 * Load bundled BeatNet ONNX model for BPM detection
@@ -56,9 +48,7 @@ declare class EngineNativeModule
 	 */
 	isReady(): boolean;
 
-	// =========================================================================
 	// Key Detection (MusicalKeyCNN)
-	// =========================================================================
 
 	/**
 	 * Load bundled MusicalKeyCNN ONNX model for key detection
@@ -79,13 +69,11 @@ declare class EngineNativeModule
 
 	/**
 	 * Get number of CQT frames processed for key detection
-	 * Key becomes reliable after ~100 frames (~20 seconds)
+	 * Key becomes provisional after ~25 frames (~5 seconds)
 	 */
 	getKeyFrameCount(): number;
 
-	// =========================================================================
 	// Native Audio Capture (recommended - no JS bridge overhead)
-	// =========================================================================
 
 	/**
 	 * Request microphone permission
@@ -107,7 +95,7 @@ declare class EngineNativeModule
 	 * @param enableWaveform Whether to emit waveform data for visualization
 	 * @returns true if recording started successfully
 	 */
-	startRecording(enableWaveform?: boolean): Promise<boolean>;
+	startRecording(enableWaveform: boolean): Promise<boolean>;
 
 	/**
 	 * Stop native audio recording
@@ -119,9 +107,7 @@ declare class EngineNativeModule
 	 */
 	isRecording(): boolean;
 
-	// =========================================================================
 	// Manual Audio Processing (use when you need custom audio handling)
-	// =========================================================================
 
 	/**
 	 * Process audio through both BPM and key detection pipelines
@@ -131,22 +117,31 @@ declare class EngineNativeModule
 	 */
 	processAudio(samples: Float32Array | number[]): FrameResult[] | null;
 
-	// =========================================================================
 	// State Queries
-	// =========================================================================
 
 	/**
-	 * Get BPM estimate using autocorrelation
+	 * Get stabilized BPM estimate using autocorrelation over BeatNet activations
 	 * Requires sufficient audio data to be processed first (~2 seconds).
-	 * @returns BPM estimate rounded to integer, or 0 if insufficient data
+	 * @returns BPM estimate with decimal precision and DJ-range half/double-time correction, or 0 if insufficient data
 	 */
 	getBpm(): number;
+
+	/**
+	 * Get BPM confidence based on tempo peak clarity and stability over time
+	 * @returns Confidence score from 0-1
+	 */
+	getBpmConfidence(): number;
 
 	/**
 	 * Get number of frames processed
 	 * Useful to know when BPM is reliable (~100 frames = 2 seconds)
 	 */
 	getFrameCount(): number;
+
+	/**
+	 * Debug-only counters and route information for diagnosing native capture.
+	 */
+	getDebugState?(): EngineDebugState;
 }
 
 let nativeModule: EngineNativeModule | null = null;

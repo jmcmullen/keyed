@@ -18,6 +18,8 @@ interface WaveformProps {
 	width: number;
 	height: number;
 	isActive?: boolean;
+	level?: number;
+	bands?: Bands;
 	resetKey?: number;
 	gridMarkers?: number[];
 	cuePoints?: number[];
@@ -31,6 +33,17 @@ const MIN_PEAK = 0.01;
 
 const EMPTY_GRID_MARKERS: number[] = [];
 const EMPTY_CUE_POINTS: number[] = [];
+const EMPTY_BANDS = {
+	low: 0,
+	mid: 0,
+	high: 0,
+} as const;
+
+interface Bands {
+	low: number;
+	mid: number;
+	high: number;
+}
 
 interface HistoryEntry {
 	bass: number;
@@ -63,6 +76,8 @@ export function Waveform({
 	width,
 	height,
 	isActive = false,
+	level = 0,
+	bands = EMPTY_BANDS,
 	resetKey = 0,
 	gridMarkers = EMPTY_GRID_MARKERS,
 	cuePoints = EMPTY_CUE_POINTS,
@@ -76,16 +91,26 @@ export function Waveform({
 	const peak = useSharedValue(MIN_PEAK);
 	const signal = useSharedValue<number[]>(samples);
 	const isActiveShared = useSharedValue(isActive);
+	const rms = useSharedValue(level);
+	const low = useSharedValue(bands.low);
+	const mid = useSharedValue(bands.mid);
+	const high = useSharedValue(bands.high);
 
 	useEffect(() => {
 		isActiveShared.value = isActive;
 	}, [isActive, isActiveShared]);
 
 	useEffect(() => {
+		rms.value = level;
+		low.value = bands.low;
+		mid.value = bands.mid;
+		high.value = bands.high;
+	}, [bands, high, level, low, mid, rms]);
+
+	useEffect(() => {
 		signal.value = samples;
 	}, [samples, signal]);
 
-	// Reset on key change
 	// biome-ignore lint/correctness/useExhaustiveDependencies: resetKey triggers intentional reset
 	useEffect(() => {
 		history.value = Array.from({ length: lineCount }, () => ({
@@ -128,11 +153,15 @@ export function Waveform({
 		}
 
 		const avgAbs = (sumAbs / sampleLen) * gain;
-		const avgDiff = (sumDiff / (sampleLen - 1)) * gain;
+		const avgDiff = sampleLen > 1 ? (sumDiff / (sampleLen - 1)) * gain : 0;
+		const live = Math.min(1, rms.value * 32);
 
-		const rawHigh = Math.min(1, Math.max(0, avgDiff * 5.0));
-		const rawBass = Math.min(1, Math.max(0, (avgAbs - avgDiff * 0.5) * 1.5));
-		const rawMid = Math.min(1, Math.max(0, avgAbs * 1.2));
+		const rawHigh = Math.min(1, Math.max(high.value, avgDiff * 5, live * 0.25));
+		const rawBass = Math.min(
+			1,
+			Math.max(low.value, (avgAbs - avgDiff * 0.5) * 1.5, live * 0.45),
+		);
+		const rawMid = Math.min(1, Math.max(mid.value, avgAbs * 1.2, live * 0.35));
 
 		const highH = rawHigh * maxBarHeight * 0.5;
 		const midH = rawMid * maxBarHeight * 0.75;

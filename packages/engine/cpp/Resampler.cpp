@@ -147,10 +147,6 @@ int Resampler::processStreaming(const float* input, int inputSize, float* output
 	return outputIdx;
 }
 
-// ============================================================================
-// LinearResampler - Simple but lower quality
-// ============================================================================
-
 LinearResampler::LinearResampler(int inputRate, int outputRate)
 	: inputRate_(inputRate)
 	, outputRate_(outputRate)

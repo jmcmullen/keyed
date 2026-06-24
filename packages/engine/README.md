@@ -28,7 +28,7 @@ The Expo module exposes:
 
 - model lifecycle: `loadModel()`, `loadKeyModel()`, `isReady()`, `isKeyReady()`, `reset()`
 - recording lifecycle: `requestPermission()`, `startRecording()`, `stopRecording()`
-- state queries: `getBpm()`, `getFrameCount()`, `getKey()`, `getKeyFrameCount()`
+- state queries: `getBpm()` returns the stabilized decimal BPM estimate with DJ-range half/double-time correction, `getBpmConfidence()` returns a 0-1 tempo confidence score, plus `getFrameCount()`, `getKey()`, `getKeyFrameCount()`
 - events: `onState`, `onWaveform`, `onKey`
 
 See `src/Engine.types.ts` for the event payload contracts.

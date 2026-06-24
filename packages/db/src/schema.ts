@@ -2,7 +2,7 @@ import { integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 export const detections = sqliteTable("detections", {
 	id: text("id").primaryKey(),
-	bpm: integer("bpm").notNull(),
+	bpm: real("bpm").notNull(),
 	bpmConfidence: real("bpm_confidence").notNull(),
 	key: text("key").notNull(),
 	keyConfidence: real("key_confidence").notNull(),

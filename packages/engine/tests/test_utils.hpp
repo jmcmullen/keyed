@@ -9,9 +9,6 @@
 
 namespace test_utils {
 
-/**
- * Get the directory containing test files
- */
 inline std::string getTestDir() {
     // __FILE__ is the path to this header
     std::string path(__FILE__);
@@ -26,16 +23,10 @@ inline std::string getModelsDir() {
     return getTestDir() + "../models/";
 }
 
-/**
- * Get the path to the BeatNet ONNX model
- */
 inline std::string getModelPath() {
     return getModelsDir() + "beatnet.onnx";
 }
 
-/**
- * Generate a sine wave for testing
- */
 inline std::vector<float> generateSineWave(float frequency, float sampleRate,
                                            size_t numSamples, float amplitude = 1.0f) {
     std::vector<float> samples(numSamples);
@@ -46,9 +37,6 @@ inline std::vector<float> generateSineWave(float frequency, float sampleRate,
     return samples;
 }
 
-/**
- * Generate an impulse signal
- */
 inline std::vector<float> generateImpulse(size_t numSamples) {
     std::vector<float> samples(numSamples, 0.0f);
     if (numSamples > 0) {
@@ -57,9 +45,6 @@ inline std::vector<float> generateImpulse(size_t numSamples) {
     return samples;
 }
 
-/**
- * Generate random noise
- */
 inline std::vector<float> generateNoise(size_t numSamples, float amplitude = 0.1f,
                                         unsigned int seed = 42) {
     std::mt19937 rng(seed);
@@ -72,9 +57,6 @@ inline std::vector<float> generateNoise(size_t numSamples, float amplitude = 0.1
     return samples;
 }
 
-/**
- * Generate a click track (synthetic beats)
- */
 inline std::vector<float> generateClickTrack(float bpm, float sampleRate,
                                              float durationSeconds,
                                              float clickFrequency = 1000.0f) {
@@ -96,16 +78,10 @@ inline std::vector<float> generateClickTrack(float bpm, float sampleRate,
     return samples;
 }
 
-/**
- * Compare floats with tolerance
- */
 inline bool floatsEqual(float a, float b, float tolerance = 1e-5f) {
     return std::abs(a - b) < tolerance;
 }
 
-/**
- * Find index of maximum value
- */
 inline size_t argmax(const std::vector<float>& v) {
     if (v.empty()) return std::numeric_limits<size_t>::max();
     return std::max_element(v.begin(), v.end()) - v.begin();

@@ -25,6 +25,7 @@ class EngineModule : Module() {
 		private const val BPM_SAMPLE_RATE = 22050       // BPM pipeline
 		private const val KEY_SAMPLE_RATE = 44100       // Key detection
 		private const val STATE_EMIT_INTERVAL_NS = 50_000_000L      // 20Hz
+		private const val VISUAL_EMIT_INTERVAL_NS = 16_666_667L     // 60Hz cap
 		private const val WAVEFORM_EMIT_INTERVAL_NS = 83_333_333L   // 12Hz
 
 		init {
@@ -42,6 +43,7 @@ class EngineModule : Module() {
 	private external fun nativeProcessAudio(samples: FloatArray, count: Int): Array<FrameResult>?
 	private external fun nativeProcessAudioForBpm(samples: FloatArray): Array<FrameResult>?
 	private external fun nativeGetBpm(): Float
+	private external fun nativeGetBpmConfidence(): Float
 	private external fun nativeGetFrameCount(): Long
 
 	// Native method declarations - Key
@@ -61,6 +63,7 @@ class EngineModule : Module() {
 	@Volatile private var waveformSamplesAccumulated = 0
 	@Volatile private var recordingStartTimeNs = 0L
 	@Volatile private var lastStateEmitNs = 0L
+	@Volatile private var lastVisualEmitNs = 0L
 	@Volatile private var lastWaveformEmitNs = 0L
 
 	// Key detection state
@@ -85,17 +88,9 @@ class EngineModule : Module() {
 			"KEY_FPS" to 5
 		)
 
-		Events("onState", "onWaveform", "onKey")
-
-		// =====================================================================
-		// Engine Control
-		// =====================================================================
+		Events("onState", "onWaveform", "onKey", "onVisual")
 
 		Function("reset") { nativeReset() }
-
-		// =====================================================================
-		// BPM Detection (BeatNet)
-		// =====================================================================
 
 		AsyncFunction("loadModel") { promise: Promise ->
 			val context = appContext.reactContext ?: run {
@@ -121,11 +116,8 @@ class EngineModule : Module() {
 
 		Function("isReady") { nativeIsReady() }
 		Function("getBpm") { nativeGetBpm().toDouble() }
+		Function("getBpmConfidence") { nativeGetBpmConfidence().toDouble() }
 		Function("getFrameCount") { nativeGetFrameCount().toInt() }
-
-		// =====================================================================
-		// Key Detection (MusicalKeyCNN)
-		// =====================================================================
 
 		AsyncFunction("loadKeyModel") { promise: Promise ->
 			val context = appContext.reactContext ?: run {
@@ -163,10 +155,6 @@ class EngineModule : Module() {
 
 		Function("getKeyFrameCount") { nativeGetKeyFrameCount().toInt() }
 
-		// =====================================================================
-		// Audio Processing
-		// =====================================================================
-
 		Function("processAudio") { samples: List<Double> ->
 			val floatSamples = FloatArray(samples.size) { samples[it].toFloat() }
 			val results = nativeProcessAudio(floatSamples, floatSamples.size)
@@ -177,10 +165,6 @@ class EngineModule : Module() {
 				)
 			}
 		}
-
-		// =====================================================================
-		// Permissions
-		// =====================================================================
 
 		AsyncFunction("requestPermission") { promise: Promise ->
 			val manager = appContext.permissions ?: run {
@@ -213,10 +197,6 @@ class EngineModule : Module() {
 				else -> "undetermined"
 			}
 		}
-
-		// =====================================================================
-		// Audio Recording
-		// =====================================================================
 
 		AsyncFunction("startRecording") { enableWaveform: Boolean, promise: Promise ->
 			if (isRecordingAudio.get()) {
@@ -263,7 +243,7 @@ class EngineModule : Module() {
 			SAMPLE_RATE,
 			AudioFormat.CHANNEL_IN_MONO,
 			AudioFormat.ENCODING_PCM_FLOAT
-		).coerceAtLeast(882 * 4)  // ~20ms at 44100Hz
+		).coerceAtLeast(441 * 4)  // ~10ms at 44100Hz
 
 		audioRecord = AudioRecord(
 			MediaRecorder.AudioSource.MIC,
@@ -288,13 +268,14 @@ class EngineModule : Module() {
 		waveformSamplesAccumulated = 0
 		recordingStartTimeNs = System.nanoTime()
 		lastStateEmitNs = 0L
+		lastVisualEmitNs = 0L
 		lastWaveformEmitNs = 0L
 
 		isRecordingAudio.set(true)
 		audioRecord?.startRecording()
 
 		recordingThread = thread(start = true) {
-			val buffer = FloatArray(882)  // ~20ms at 44100Hz
+			val buffer = FloatArray(441)  // ~10ms at 44100Hz
 			while (isRecordingAudio.get()) {
 				val recorder = audioRecord ?: break
 				val read = try {
@@ -350,6 +331,7 @@ class EngineModule : Module() {
 		audioRecord = null
 		recordingStartTimeNs = 0L
 		lastStateEmitNs = 0L
+		lastVisualEmitNs = 0L
 		lastWaveformEmitNs = 0L
 
 		debugLog("Audio recording stopped")
@@ -364,9 +346,20 @@ class EngineModule : Module() {
 			0.0
 		}
 
-		if (results != null && nowNs - lastStateEmitNs >= STATE_EMIT_INTERVAL_NS) {
-			val result = results.lastOrNull()
-			if (result != null) {
+		val result = results?.lastOrNull()
+		if (result != null) {
+			if (nowNs - lastVisualEmitNs >= VISUAL_EMIT_INTERVAL_NS) {
+				lastVisualEmitNs = nowNs
+				sendEvent(
+					"onVisual",
+					mapOf(
+						"beatActivation" to result.beatActivation.toDouble(),
+						"downbeatActivation" to result.downbeatActivation.toDouble(),
+						"timestamp" to timestampSeconds
+					)
+				)
+			}
+			if (nowNs - lastStateEmitNs >= STATE_EMIT_INTERVAL_NS) {
 				lastStateEmitNs = nowNs
 				sendEvent(
 					"onState",

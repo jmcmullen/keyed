@@ -4,14 +4,18 @@
 
 Keyed detects the BPM and musical key of music playing around you, fully on device. It is built for DJs who need quick tempo, key, and Camelot readings while mixing vinyl, CDJs, and digital sources.
 
+## Demo
+
+<video src="docs/keyed.mov" controls title="Keyed demo"></video>
+
+[Open the demo video](docs/keyed.mov)
+
 ## Features
 
-- **Real-time BPM detection** from microphone input
+- **Real-time BPM detection** from microphone input with DJ-range half/double tempo correction
 - **Real-time key detection** with standard notation and Camelot codes
 - **Confidence scoring** for BPM and key readings
-- **Tap tempo** for manual BPM entry
 - **Live waveform visualizer** while listening
-- **Auto-stop on silence** after a quiet section
 - **Local history** of saved detections with swipe-to-delete and clear-all actions
 - **Fully offline processing** with no server dependency
 - **iOS and Android support** through Expo and native modules
@@ -48,7 +52,7 @@ This repository is a Bun workspace managed with Turborepo.
 
 The mobile app talks to `@keyed/engine`, an Expo module with shared C++ analysis code and platform bridges for iOS and Android.
 
-- BPM path: microphone audio -> resampling -> mel features -> BeatNet ONNX model -> autocorrelation BPM estimate
+- BPM path: microphone audio -> resampling -> mel features -> BeatNet ONNX model -> stabilized decimal autocorrelation BPM estimate and confidence
 - Key path: microphone audio -> CQT features -> MusicalKeyCNN ONNX model -> key, Camelot code, and confidence
 - Bundled models live in `packages/engine/models/beatnet.onnx` and `packages/engine/models/keynet.onnx`
 - The TypeScript module API is defined in `packages/engine/src/Engine.types.ts`
@@ -62,7 +66,6 @@ See [`packages/engine/README.md`](packages/engine/README.md) for the native modu
 - Android Studio and an emulator or physical Android device for Android work
 - CMake and a C++ toolchain for native engine tests
 - EAS CLI for the `apps/native` EAS build scripts
-- `ios-deploy` only when using the local iOS build scripts that install an `.ipa`
 
 ## Setup
 
@@ -81,6 +84,8 @@ Because the app uses native modules, use a development build or native run comma
 bun --cwd apps/native run ios
 bun --cwd apps/native run android
 ```
+
+Expo build tools run prebuild automatically when native folders are missing. To install an EAS build on a simulator or device, use `eas build:run --profile development --platform ios` or the matching Android command.
 
 ## Commands
 
@@ -145,4 +150,4 @@ keyed/
 
 ## License
 
-This repository does not currently include a root `LICENSE` file. The `@keyed/engine` package metadata declares MIT.
+Keyed is licensed under the [MIT License](LICENSE).

@@ -17,10 +17,6 @@
 using namespace engine;
 using Catch::Approx;
 
-// ============================================================================
-// Model Loading Error Handling
-// ============================================================================
-
 #ifdef ONNX_ENABLED
 
 TEST_CASE("OnnxModel handles invalid path", "[error][onnx]") {
@@ -60,10 +56,8 @@ TEST_CASE("Engine handles invalid model paths", "[error][engine]") {
 TEST_CASE("Engine processes audio without loaded model", "[error][engine]") {
 	Engine engine;
 
-	// Don't load model
 	REQUIRE_FALSE(engine.isReady());
 
-	// Try to process audio
 	auto audio = test_utils::generateSineWave(440.0f, 44100.0f, 44100);
 	std::vector<Engine::FrameResult> results(100);
 
@@ -76,16 +70,11 @@ TEST_CASE("Engine processes audio without loaded model", "[error][engine]") {
 
 #endif // ONNX_ENABLED
 
-// ============================================================================
-// Edge Cases - Empty and Zero Input
-// ============================================================================
-
 TEST_CASE("MelExtractor handles empty input", "[error][mel]") {
 	StreamingMelExtractor extractor;
 
 	std::vector<float> features(272 * 10);
 
-	// Zero-length input
 	int frames = extractor.push(nullptr, 0, features.data(), 10);
 
 	REQUIRE(frames == 0);
@@ -96,7 +85,6 @@ TEST_CASE("CqtExtractor handles empty input", "[error][cqt]") {
 
 	std::vector<float> cqtFrames(CqtConfig::N_BINS * 10);
 
-	// Zero-length input
 	int frames = extractor.push(nullptr, 0, cqtFrames.data(), 10);
 
 	REQUIRE(frames == 0);
@@ -112,14 +100,9 @@ TEST_CASE("Resampler handles empty input", "[error][resampler]") {
 	REQUIRE(outputSize == 0);
 }
 
-// ============================================================================
-// Edge Cases - Very Short Input
-// ============================================================================
-
 TEST_CASE("MelExtractor handles very short input", "[error][mel]") {
 	StreamingMelExtractor extractor;
 
-	// Input shorter than window length
 	std::vector<float> shortAudio(100, 0.1f);
 	std::vector<float> features(272 * 10);
 
@@ -133,7 +116,6 @@ TEST_CASE("MelExtractor handles very short input", "[error][mel]") {
 TEST_CASE("CqtExtractor handles very short input", "[error][cqt]") {
 	StreamingCqtExtractor extractor;
 
-	// Input shorter than minimum filter length
 	std::vector<float> shortAudio(100, 0.1f);
 	std::vector<float> cqtFrames(CqtConfig::N_BINS * 10);
 
@@ -144,14 +126,9 @@ TEST_CASE("CqtExtractor handles very short input", "[error][cqt]") {
 	REQUIRE(frames == 0);
 }
 
-// ============================================================================
-// Edge Cases - Silence
-// ============================================================================
-
 TEST_CASE("MelExtractor handles silence", "[error][mel]") {
 	StreamingMelExtractor extractor;
 
-	// Generate silent audio
 	std::vector<float> silence(22050, 0.0f);  // 1 second of silence
 	std::vector<float> features(272 * 100);
 
@@ -172,7 +149,6 @@ TEST_CASE("MelExtractor handles silence", "[error][mel]") {
 TEST_CASE("CqtExtractor handles silence", "[error][cqt]") {
 	CqtExtractor extractor;
 
-	// Generate silent audio
 	int maxFilterLen = extractor.getMaxFilterLength();
 	std::vector<float> silence(maxFilterLen, 0.0f);
 	std::vector<float> cqtBins(CqtConfig::N_BINS);
@@ -188,14 +164,9 @@ TEST_CASE("CqtExtractor handles silence", "[error][cqt]") {
 	}
 }
 
-// ============================================================================
-// Edge Cases - DC Offset
-// ============================================================================
-
 TEST_CASE("MelExtractor handles DC offset", "[error][mel]") {
 	StreamingMelExtractor extractor;
 
-	// Audio with DC offset
 	std::vector<float> dcAudio(22050);
 	for (size_t i = 0; i < dcAudio.size(); i++) {
 		dcAudio[i] = 0.5f;  // Constant DC
@@ -216,14 +187,9 @@ TEST_CASE("MelExtractor handles DC offset", "[error][mel]") {
 	}
 }
 
-// ============================================================================
-// Edge Cases - Extreme Values
-// ============================================================================
-
 TEST_CASE("MelExtractor handles clipping", "[error][mel]") {
 	StreamingMelExtractor extractor;
 
-	// Clipped audio (values at +/- 1.0)
 	std::vector<float> clippedAudio(22050);
 	for (size_t i = 0; i < clippedAudio.size(); i++) {
 		clippedAudio[i] = (i % 2 == 0) ? 1.0f : -1.0f;
@@ -247,7 +213,6 @@ TEST_CASE("MelExtractor handles clipping", "[error][mel]") {
 TEST_CASE("Resampler handles extreme values", "[error][resampler]") {
 	Resampler resampler;
 
-	// Very loud audio
 	std::vector<float> loud(4410);
 	for (size_t i = 0; i < loud.size(); i++) {
 		loud[i] = 10.0f * std::sin(2.0f * M_PI * 440.0f * i / 44100.0f);
@@ -263,10 +228,6 @@ TEST_CASE("Resampler handles extreme values", "[error][resampler]") {
 		REQUIRE(std::isfinite(output[i]));
 	}
 }
-
-// ============================================================================
-// Repeated Operations
-// ============================================================================
 
 TEST_CASE("MelExtractor handles repeated reset", "[error][mel]") {
 	StreamingMelExtractor extractor;

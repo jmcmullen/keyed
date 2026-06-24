@@ -27,7 +27,10 @@ Pod::Spec.new do |s|
     'cpp/**/*.{h,hpp,cpp}',
   ]
 
-  s.public_header_files = 'ios/EngineBridge.h'
+  s.public_header_files = [
+    'ios/EngineBridge.h',
+    'ios/EngineAudioBuffer.h',
+  ]
 
   # Bundle ONNX models in a named resource bundle for reliable access in frameworks
   s.resource_bundles = {

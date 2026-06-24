@@ -10,6 +10,9 @@
 #ifdef ONNX_ENABLE_COREML
 #include <coreml_provider_factory.h>
 #endif
+#ifdef __ANDROID__
+#include <nnapi_provider_factory.h>
+#endif
 #include <cmath>
 #include <cstring>
 
@@ -88,16 +91,16 @@ bool OnnxModel::load(const std::string& modelPath) {
 #elif defined(__APPLE__) && defined(ONNX_ENABLE_COREML)
     // Enable CoreML for iOS/macOS - uses Neural Engine on supported devices
     // Flags:
-    //   0x001 = COREML_FLAG_CREATE_MLPROGRAM (use ML Program format, iOS 15+)
+    //   0x010 = COREML_FLAG_CREATE_MLPROGRAM (use ML Program format, iOS 15+)
+    //   0x020 = COREML_FLAG_USE_CPU_AND_GPU (allow GPU acceleration)
     //   0x004 = COREML_FLAG_ONLY_ENABLE_DEVICE_WITH_ANE (require Neural Engine)
-    // We use 0x001 for ML Program which is more efficient on modern devices
-    uint32_t coremlFlags = 0x001;  // COREML_FLAG_CREATE_MLPROGRAM
+    uint32_t coremlFlags = COREML_FLAG_CREATE_MLPROGRAM | COREML_FLAG_USE_CPU_AND_GPU;
     OrtStatus* coremlStatus = OrtSessionOptionsAppendExecutionProvider_CoreML(sessionOptions_, coremlFlags);
     if (coremlStatus) {
         LOGI("CoreML not available: %s. Falling back to CPU\n", api_->GetErrorMessage(coremlStatus));
         api_->ReleaseStatus(coremlStatus);
     } else {
-        LOGI("CoreML execution provider enabled (ML Program mode)\n");
+        LOGI("CoreML execution provider enabled (ML Program, CPU/GPU)\n");
     }
 #else
     LOGI("Using CPU execution provider\n");

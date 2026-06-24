@@ -7,18 +7,15 @@ namespace engine {
 /**
  * Audio resampler for sample rate conversion
  *
- * Implements 2:1 downsampling (44100 Hz → 22050 Hz) using a polyphase
- * halfband filter for efficient, high-quality conversion.
+ * Implements 2:1 downsampling (44100 Hz → 22050 Hz) using a windowed-sinc
+ * FIR low-pass filter.
  *
- * The halfband filter has these properties:
- * - Passband: 0 to ~0.45 * fs_in (cutoff below new Nyquist)
- * - Stopband: 0.5 * fs_in and above
- * - Every other coefficient is zero (efficient polyphase implementation)
+ * The filter cutoff is below the output Nyquist frequency to avoid aliasing.
  */
 class Resampler {
 public:
 	/**
-	 * Create resampler with default halfband filter
+	 * Create resampler with default FIR low-pass filter
 	 * @param inputRate Input sample rate (e.g., 44100)
 	 * @param outputRate Output sample rate (e.g., 22050)
 	 */
@@ -68,7 +65,7 @@ private:
 	int outputRate_;
 	int ratio_;
 
-	// Halfband filter coefficients
+	// Windowed-sinc FIR coefficients
 	std::vector<float> coefficients_;
 	int filterLength_;
 

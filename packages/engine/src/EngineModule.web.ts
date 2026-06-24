@@ -1,5 +1,6 @@
 import { NativeModule, registerWebModule } from "expo";
 import type {
+	EngineDebugState,
 	EngineModuleEvents,
 	FrameResult,
 	KeyResult,
@@ -62,8 +63,19 @@ class EngineModuleWeb extends NativeModule<EngineModuleEvents> {
 		return 0;
 	}
 
+	getBpmConfidence(): number {
+		return 0;
+	}
+
 	getFrameCount(): number {
 		return 0;
+	}
+
+	getDebugState(): EngineDebugState {
+		return {
+			recording: false,
+			platform: "web",
+		};
 	}
 
 	reset(): void {}

@@ -8,9 +8,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Paths
 set(ENGINE_CPP_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../cpp)
 
-# ============================================================================
 # ONNX Runtime Setup (download if needed)
-# ============================================================================
 set(ONNX_VERSION "1.21.0")
 set(ONNX_DIR ${CMAKE_CURRENT_BINARY_DIR}/onnxruntime)
 
@@ -87,10 +85,9 @@ if(NOT DEFINED ONNX_ENABLED OR ONNX_ENABLED)
     endif()
 endif()
 
-# ============================================================================
 # Engine library for testing
-# ============================================================================
 add_library(engine_testable STATIC
+    ${ENGINE_CPP_DIR}/AudioInputBuffer.cpp
     ${ENGINE_CPP_DIR}/Engine.cpp
     ${ENGINE_CPP_DIR}/MelExtractor.cpp
     ${ENGINE_CPP_DIR}/CqtExtractor.cpp
@@ -125,24 +122,23 @@ if(ONNX_ENABLED)
     endif()
 endif()
 
-# ============================================================================
 # Catch2 (amalgamated)
-# ============================================================================
 add_library(catch2 STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/catch_amalgamated.cpp
 )
 target_include_directories(catch2 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
-# ============================================================================
 # Test executable
-# ============================================================================
 set(TEST_SOURCES
+    test_audio_input_buffer.cpp
     test_fft.cpp
     test_mel_extractor.cpp
     test_cqt_extractor.cpp
+    test_key_smoother.cpp
     test_resampler.cpp
     test_autocorr_bpm.cpp
     test_error_handling.cpp
+    test_integration.cpp
 )
 
 # Add ONNX tests if available
@@ -174,9 +170,7 @@ if(ONNX_ENABLED AND APPLE)
     )
 endif()
 
-# ============================================================================
 # Testing
-# ============================================================================
 enable_testing()
 add_test(NAME engine_tests COMMAND engine_tests)
 

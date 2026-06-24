@@ -26,10 +26,6 @@ static std::mutex g_engineMutex;
 
 extern "C" {
 
-// ============================================================================
-// Engine Lifecycle
-// ============================================================================
-
 JNIEXPORT void JNICALL
 Java_services_session_keyed_engine_EngineModule_nativeInit(JNIEnv* env, jobject thiz) {
 	std::lock_guard<std::mutex> lock(g_engineMutex);
@@ -56,10 +52,6 @@ Java_services_session_keyed_engine_EngineModule_nativeDestroy(JNIEnv* env, jobje
 		g_engine = nullptr;
 	}
 }
-
-// ============================================================================
-// BPM Detection (BeatNet)
-// ============================================================================
 
 JNIEXPORT jboolean JNICALL
 Java_services_session_keyed_engine_EngineModule_nativeLoadModel(
@@ -102,15 +94,17 @@ Java_services_session_keyed_engine_EngineModule_nativeGetBpm(JNIEnv* env, jobjec
 	return g_engine ? g_engine->getBpm() : 0.0f;
 }
 
+JNIEXPORT jfloat JNICALL
+Java_services_session_keyed_engine_EngineModule_nativeGetBpmConfidence(JNIEnv* env, jobject thiz) {
+	std::lock_guard<std::mutex> lock(g_engineMutex);
+	return g_engine ? g_engine->getBpmConfidence() : 0.0f;
+}
+
 JNIEXPORT jlong JNICALL
 Java_services_session_keyed_engine_EngineModule_nativeGetFrameCount(JNIEnv* env, jobject thiz) {
 	std::lock_guard<std::mutex> lock(g_engineMutex);
 	return g_engine ? static_cast<jlong>(g_engine->getFrameCount()) : 0;
 }
-
-// ============================================================================
-// Key Detection (MusicalKeyCNN)
-// ============================================================================
 
 JNIEXPORT jboolean JNICALL
 Java_services_session_keyed_engine_EngineModule_nativeLoadKeyModel(
@@ -163,7 +157,6 @@ Java_services_session_keyed_engine_EngineModule_nativeGetKey(JNIEnv* env, jobjec
 		return nullptr;
 	}
 
-	// Find the KeyResult class
 	jclass keyResultClass = env->FindClass("services/session/keyed/engine/KeyResult");
 	if (keyResultClass == nullptr) {
 		LOGE("KeyResult class not found");
@@ -200,10 +193,6 @@ Java_services_session_keyed_engine_EngineModule_nativeGetKeyFrameCount(JNIEnv* e
 	return g_engine ? static_cast<jlong>(g_engine->getKeyFrameCount()) : 0;
 }
 
-// ============================================================================
-// Audio Processing
-// ============================================================================
-
 JNIEXPORT jobjectArray JNICALL
 Java_services_session_keyed_engine_EngineModule_nativeProcessAudio(
 	JNIEnv* env, jobject thiz, jfloatArray samples, jint count) {
@@ -238,7 +227,6 @@ Java_services_session_keyed_engine_EngineModule_nativeProcessAudio(
 		return nullptr;
 	}
 
-	// Find the FrameResult class
 	jclass resultClass = env->FindClass("services/session/keyed/engine/FrameResult");
 	if (resultClass == nullptr) {
 		LOGE("FrameResult class not found");
@@ -252,7 +240,6 @@ Java_services_session_keyed_engine_EngineModule_nativeProcessAudio(
 		return nullptr;
 	}
 
-	// Create array of results
 	jobjectArray resultArray = env->NewObjectArray(numResults, resultClass, nullptr);
 
 	for (int i = 0; i < numResults; i++) {

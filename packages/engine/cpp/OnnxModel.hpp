@@ -39,7 +39,6 @@ public:
     OnnxModel();
     ~OnnxModel();
 
-    // Non-copyable
     OnnxModel(const OnnxModel&) = delete;
     OnnxModel& operator=(const OnnxModel&) = delete;
 

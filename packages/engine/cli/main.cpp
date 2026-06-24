@@ -31,12 +31,10 @@ constexpr int SAMPLE_RATE = 44100;
 constexpr int CHANNELS = 1;
 constexpr int BUFFER_SIZE = 882;  // 20ms at 44100Hz
 
-// Global state
 std::atomic<bool> g_running{true};
 std::mutex g_mutex;
 Engine g_engine;
 
-// Stats
 std::atomic<int> g_frameCount{0};
 std::chrono::steady_clock::time_point g_startTime;
 
@@ -50,7 +48,6 @@ void audioCallback(ma_device* device, void* output, const void* input, ma_uint32
 
 	const float* samples = static_cast<const float*>(input);
 
-	// Process through engine
 	static constexpr int MAX_RESULTS = 8;
 	Engine::FrameResult results[MAX_RESULTS];
 
@@ -109,7 +106,6 @@ void printStatus() {
 	auto now = std::chrono::steady_clock::now();
 	auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - g_startTime).count();
 
-	// Get BPM and Key (hold mutex briefly to read engine state)
 	float bpm;
 	size_t bpmFrames;
 	Engine::KeyResult keyResult;
@@ -122,10 +118,9 @@ void printStatus() {
 		keyFrames = g_engine.getKeyFrameCount();
 	}
 
-	// Build status line
 	char bpmStr[32];
 	if (bpm > 0) {
-		snprintf(bpmStr, sizeof(bpmStr), "%5.0f", bpm);
+		snprintf(bpmStr, sizeof(bpmStr), "%5.1f", bpm);
 	} else {
 		snprintf(bpmStr, sizeof(bpmStr), "  ...");
 	}
@@ -149,7 +144,6 @@ int main(int argc, char* argv[]) {
 	int deviceIndex = -1;  // -1 means use default
 	bool listOnly = false;
 
-	// Parse arguments
 	for (int i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "-l") == 0 || strcmp(argv[i], "--list") == 0) {
 			listOnly = true;
@@ -179,13 +173,11 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
-	// List devices mode
 	if (listOnly) {
 		listDevices();
 		return 0;
 	}
 
-	// Load BPM model
 	printf("Loading BPM model: %s\n", BPM_MODEL_PATH);
 	if (!g_engine.loadModel(BPM_MODEL_PATH)) {
 		fprintf(stderr, "Error: Failed to load BPM model\n");
@@ -193,7 +185,6 @@ int main(int argc, char* argv[]) {
 	}
 	printf("BPM model loaded\n");
 
-	// Load Key model
 	printf("Loading Key model: %s\n", KEY_MODEL_PATH);
 	if (!g_engine.loadKeyModel(KEY_MODEL_PATH)) {
 		fprintf(stderr, "Error: Failed to load Key model\n");
@@ -201,18 +192,15 @@ int main(int argc, char* argv[]) {
 	}
 	printf("Key model loaded\n\n");
 
-	// Setup signal handler
 	signal(SIGINT, signalHandler);
 	signal(SIGTERM, signalHandler);
 
-	// Initialize audio context for device enumeration
 	ma_context context;
 	if (ma_context_init(NULL, 0, NULL, &context) != MA_SUCCESS) {
 		fprintf(stderr, "Error: Failed to initialize audio context\n");
 		return 1;
 	}
 
-	// Get device list if specific device requested
 	ma_device_id* deviceId = nullptr;
 	ma_device_id selectedDeviceId;
 
@@ -245,7 +233,6 @@ int main(int argc, char* argv[]) {
 		printf("Selected device: [%d] %s\n\n", deviceIndex, captureDevices[deviceIndex].name);
 	}
 
-	// Initialize miniaudio device
 	ma_device_config deviceConfig = ma_device_config_init(ma_device_type_capture);
 	deviceConfig.capture.pDeviceID = deviceId;
 	deviceConfig.capture.format = ma_format_f32;
@@ -267,7 +254,6 @@ int main(int argc, char* argv[]) {
 	printf("Listening... (Ctrl+C to stop)\n");
 	printf("=============================\n\n");
 
-	// Start recording
 	if (ma_device_start(&device) != MA_SUCCESS) {
 		fprintf(stderr, "Error: Failed to start audio device\n");
 		ma_device_uninit(&device);
@@ -277,7 +263,6 @@ int main(int argc, char* argv[]) {
 
 	g_startTime = std::chrono::steady_clock::now();
 
-	// Main loop - just print status periodically
 	while (g_running) {
 		printStatus();
 		std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -285,11 +270,9 @@ int main(int argc, char* argv[]) {
 
 	printf("\n\nStopping...\n");
 
-	// Cleanup
 	ma_device_uninit(&device);
 	ma_context_uninit(&context);
 
-	// Print summary
 	auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
 		std::chrono::steady_clock::now() - g_startTime).count();
 
@@ -307,19 +290,19 @@ int main(int argc, char* argv[]) {
 	printf("BPM Detection:\n");
 	printf("  Frames: %zu\n", bpmFrames);
 	if (bpm > 0) {
-		printf("  Result: %.0f BPM\n", bpm);
+		printf("  Result: %.1f BPM\n", bpm);
 	} else {
 		printf("  Result: Not enough data (need ~2 seconds)\n");
 	}
 	printf("\n");
 
 	printf("Key Detection:\n");
-	printf("  CQT Frames: %zu / 100\n", keyFrames);
+	printf("  CQT Frames: %zu / %d provisional\n", keyFrames, Engine::KEY_FAST_FRAMES);
 	if (keyResult.valid) {
 		printf("  Result: %s (%s)\n", keyResult.notation.c_str(), keyResult.camelot.c_str());
 		printf("  Confidence: %.0f%%\n", keyResult.confidence * 100.0f);
 	} else {
-		printf("  Result: Not enough data (need ~20 seconds)\n");
+		printf("  Result: Not enough data (need ~5 seconds)\n");
 	}
 
 	return 0;
