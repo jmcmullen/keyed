@@ -75,22 +75,4 @@ private:
 	int historySize_;
 };
 
-/**
- * Simple linear interpolation resampler (lower quality, faster)
- *
- * Use for non-critical applications where CPU is more important than quality.
- */
-class LinearResampler {
-public:
-	LinearResampler(int inputRate = 44100, int outputRate = 22050);
-
-	int process(const float* input, int inputSize, float* output);
-	int getOutputSize(int inputSize) const;
-
-private:
-	int inputRate_;
-	int outputRate_;
-	float ratio_;
-};
-
 } // namespace engine

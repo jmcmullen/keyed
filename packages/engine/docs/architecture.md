@@ -44,7 +44,8 @@ Deep dive: [beatnet.md](beatnet.md)
    - `confidence` (softmax probability, 0-1)
 
 Operational notes:
-- Minimum frames before first key inference: `KEY_MIN_FRAMES = 100` (~20 seconds)
+- Minimum frames before first key inference: `KEY_MIN_FRAMES = 25` (~5 seconds)
+- Live/stable key windows use 50/100 frames (~10/~20 seconds) when available.
 - After first result, inference runs every `KEY_INFERENCE_INTERVAL = 25` frames (~5 seconds)
 - Inference uses a rolling 4-minute CQT window (1200 frames at 5 FPS) to keep memory bounded.
 - Native layer emits `onKey` when notation changes or confidence changes meaningfully

@@ -147,36 +147,4 @@ int Resampler::processStreaming(const float* input, int inputSize, float* output
 	return outputIdx;
 }
 
-LinearResampler::LinearResampler(int inputRate, int outputRate)
-	: inputRate_(inputRate)
-	, outputRate_(outputRate)
-	, ratio_(static_cast<float>(inputRate) / outputRate)
-{
-}
-
-int LinearResampler::getOutputSize(int inputSize) const {
-	return static_cast<int>(inputSize / ratio_);
-}
-
-int LinearResampler::process(const float* input, int inputSize, float* output) {
-	int outputSize = getOutputSize(inputSize);
-
-	for (int i = 0; i < outputSize; i++) {
-		float srcPos = i * ratio_;
-		int srcIdx = static_cast<int>(srcPos);
-		float frac = srcPos - srcIdx;
-
-		if (srcIdx + 1 < inputSize) {
-			// Linear interpolation
-			output[i] = input[srcIdx] * (1.0f - frac) + input[srcIdx + 1] * frac;
-		} else if (srcIdx < inputSize) {
-			output[i] = input[srcIdx];
-		} else {
-			output[i] = 0.0f;
-		}
-	}
-
-	return outputSize;
-}
-
 } // namespace engine

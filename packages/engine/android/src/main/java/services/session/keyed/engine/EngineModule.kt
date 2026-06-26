@@ -41,7 +41,6 @@ class EngineModule : Module() {
 	private external fun nativeIsReady(): Boolean
 	private external fun nativeWarmUp(): Boolean
 	private external fun nativeProcessAudio(samples: FloatArray, count: Int): Array<FrameResult>?
-	private external fun nativeProcessAudioForBpm(samples: FloatArray): Array<FrameResult>?
 	private external fun nativeGetBpm(): Float
 	private external fun nativeGetBpmConfidence(): Float
 	private external fun nativeGetFrameCount(): Long

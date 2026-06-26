@@ -16,19 +16,6 @@ export interface KeyResult {
 	timestamp?: number;
 }
 
-export interface ProcessResult {
-	/** Detected beat type, or null if no beat */
-	beat: "beat" | "downbeat" | null;
-	/** Current BPM estimate with decimal precision */
-	bpm: number;
-	/** Current phase in the beat cycle (0-1) */
-	phase: number;
-	/** Detected meter (beats per bar) */
-	meter: number;
-	/** Confidence in the current estimate (0-1) */
-	confidence: number;
-}
-
 export interface EngineConstants {
 	/** Native sample rate in Hz (44100) */
 	SAMPLE_RATE: number;

@@ -48,7 +48,7 @@ flowchart LR
 		BPM --> Beat[Beat/downbeat activations]
 		Key --> Harmony[Key + Camelot + confidence]
 
-		Tempo --> Events[Throttled native events]
+		Tempo --> Events[Native visual/state events]
 		Harmony --> Events
 		Beat --> Events
 	end

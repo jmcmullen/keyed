@@ -226,7 +226,8 @@ int Engine::processAudio(const float* samples, int numSamples,
 			}
 		}
 
-		// Run a fast provisional inference first, then refresh roughly once per second.
+		// Run a fast provisional inference first, then refresh on a slower cadence
+		// so key CNN work does not interrupt live beat visuals.
 		const bool hasMinFrames = cqtFrameCount_ >= KEY_MIN_FRAMES;
 		const bool shouldRunInference = hasMinFrames &&
 			(keyInferenceCount_ == 0 || cqtFramesSinceInference_ >= KEY_INFERENCE_INTERVAL);

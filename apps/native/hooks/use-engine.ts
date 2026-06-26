@@ -26,19 +26,12 @@ export interface KeyState {
 	timestamp: number;
 }
 
-export interface UseEngineOptions {
-	onWaveform?: (data: WaveformData) => void;
-}
-
 export interface UseEngineReturn {
 	status: DetectionStatus;
 	isListening: boolean;
 	isBusy: boolean;
-	keyReady: boolean;
 	result: BeatNetResult | null;
 	key: KeyState | null;
-	beatActivation: number;
-	downbeatActivation: number;
 	error: string | null;
 	startListening: () => Promise<boolean>;
 	stopListening: () => boolean;
@@ -48,7 +41,6 @@ export interface UseEngineReturn {
 const RESULT_UPDATE_INTERVAL = 100;
 const BPM_POLL_INTERVAL = 500;
 const KEY_EVENT_INTERVAL = 100;
-const LOG_INTERVAL = 1_000;
 const HEALTH_DELAY = 2_500;
 
 function log(msg: string, data?: Record<string, unknown>) {
@@ -59,36 +51,27 @@ function log(msg: string, data?: Record<string, unknown>) {
 	console.info(`[useEngine] ${msg}`);
 }
 
-export function useEngine(options: UseEngineOptions = {}): UseEngineReturn {
-	const { onWaveform } = options;
-
+export function useEngine(): UseEngineReturn {
 	const [status, setStatus] = useState<DetectionStatus>("idle");
 	const [result, setResult] = useState<BeatNetResult | null>(null);
 	const [key, setKey] = useState<KeyState | null>(null);
-	const [keyReady, setKeyReady] = useState(false);
 	const [isBusy, setIsBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [isListening, setIsListening] = useState(false);
-	const [beatActivation, setBeatActivation] = useState(0);
-	const [downbeatActivation, setDownbeatActivation] = useState(0);
 
 	const latestBpmRef = useRef<number>(0);
 	const latestBpmConfidenceRef = useRef<number>(0);
 	const lastResultUpdateRef = useRef<number>(0);
 	const lastBpmPollRef = useRef<number>(0);
 	const lastKeyUpdateRef = useRef<number>(0);
-	const onWaveformRef = useRef(onWaveform);
 	const resultRef = useRef(result);
 	const isListeningRef = useRef(false);
 	const busyRef = useRef(false);
 	const stateCountRef = useRef(0);
 	const waveformCountRef = useRef(0);
 	const keyCountRef = useRef(0);
-	const lastStateLogRef = useRef(0);
-	const lastWaveformLogRef = useRef(0);
 	const levelRef = useRef(0);
 
-	onWaveformRef.current = onWaveform;
 	resultRef.current = result;
 
 	const lock = useCallback(() => {
@@ -110,13 +93,9 @@ export function useEngine(options: UseEngineOptions = {}): UseEngineReturn {
 		stateCountRef.current = 0;
 		waveformCountRef.current = 0;
 		keyCountRef.current = 0;
-		lastStateLogRef.current = 0;
-		lastWaveformLogRef.current = 0;
 		levelRef.current = 0;
 		setResult(null);
 		setKey(null);
-		setBeatActivation(0);
-		setDownbeatActivation(0);
 	}, []);
 
 	useEffect(() => {
@@ -138,7 +117,6 @@ export function useEngine(options: UseEngineOptions = {}): UseEngineReturn {
 					setStatus("error");
 					return;
 				}
-				setKeyReady(EngineModule.isKeyReady());
 				setStatus("idle");
 			})
 			.catch((err: unknown) => {
@@ -194,22 +172,8 @@ export function useEngine(options: UseEngineOptions = {}): UseEngineReturn {
 					downbeatActivation: event.downbeatActivation,
 				};
 
-				if (now - lastStateLogRef.current >= LOG_INTERVAL) {
-					lastStateLogRef.current = now;
-					log("state event", {
-						events: stateCountRef.current,
-						frameCount,
-						bpm,
-						bpmConfidence,
-						beat: event.beatActivation,
-						downbeat: event.downbeatActivation,
-						timestamp: event.timestamp,
-					});
-				}
 				if (now - lastResultUpdateRef.current < RESULT_UPDATE_INTERVAL) return;
 				lastResultUpdateRef.current = now;
-				setBeatActivation(event.beatActivation);
-				setDownbeatActivation(event.downbeatActivation);
 				setResult(next);
 				if (bpm > 0) {
 					setStatus("detected");
@@ -224,20 +188,6 @@ export function useEngine(options: UseEngineOptions = {}): UseEngineReturn {
 
 				waveformCountRef.current += 1;
 				levelRef.current = event.rms;
-				const now = Date.now();
-				if (now - lastWaveformLogRef.current >= LOG_INTERVAL) {
-					lastWaveformLogRef.current = now;
-					log("waveform event", {
-						events: waveformCountRef.current,
-						samples: event.samples.length,
-						peak: event.peak,
-						rms: event.rms,
-						low: event.low,
-						mid: event.mid,
-						high: event.high,
-					});
-				}
-				onWaveformRef.current?.(event);
 			},
 		);
 
@@ -251,13 +201,6 @@ export function useEngine(options: UseEngineOptions = {}): UseEngineReturn {
 				if (now - lastKeyUpdateRef.current < KEY_EVENT_INTERVAL) return;
 				lastKeyUpdateRef.current = now;
 
-				log("key event", {
-					events: keyCountRef.current,
-					camelot: event.camelot,
-					notation: event.notation,
-					confidence: event.confidence,
-					timestamp: event.timestamp,
-				});
 				const next: KeyState = {
 					camelot: event.camelot,
 					notation: event.notation,
@@ -428,11 +371,8 @@ export function useEngine(options: UseEngineOptions = {}): UseEngineReturn {
 		status,
 		isListening,
 		isBusy,
-		keyReady,
 		result,
 		key,
-		beatActivation,
-		downbeatActivation,
 		error,
 		startListening,
 		stopListening,

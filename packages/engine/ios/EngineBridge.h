@@ -119,14 +119,6 @@ NS_ASSUME_NONNULL_BEGIN
              beatActivation:(float *)beatActivation
         downbeatActivation:(float *)downbeatActivation;
 
-/**
- * Process audio samples at 22050 Hz for BPM only (legacy compatibility)
- * Does NOT process key detection
- * @param samples Audio samples at 22050Hz
- * @return Array of EngineFrameResult, or nil if no results
- */
-- (nullable NSArray<EngineFrameResult *> *)processAudioForBpm:(NSArray<NSNumber *> *)samples;
-
 // Constants
 @property (class, nonatomic, readonly) int sampleRate;       // 44100 Hz
 @property (class, nonatomic, readonly) int bpmSampleRate;    // 22050 Hz

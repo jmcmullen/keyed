@@ -28,13 +28,6 @@ TEST_CASE("Resampler output size", "[resampler][size]") {
 	REQUIRE(resampler.getOutputSize(1000) == 500);
 }
 
-TEST_CASE("LinearResampler output size", "[resampler][linear][size]") {
-	LinearResampler resampler;
-
-	REQUIRE(resampler.getOutputSize(44100) == 22050);
-	REQUIRE(resampler.getOutputSize(88200) == 44100);
-}
-
 TEST_CASE("Resampler basic operation", "[resampler][basic]") {
 	Resampler resampler;
 
@@ -125,30 +118,6 @@ TEST_CASE("Resampler attenuates frequencies above new Nyquist", "[resampler][ali
 	// But 20 kHz is at 0.45 of input fs, right at the transition band edge
 	// So we'll accept any significant attenuation (> 3dB = 0.5x)
 	REQUIRE(rmsOutput < 0.5f);
-}
-
-TEST_CASE("LinearResampler basic operation", "[resampler][linear][basic]") {
-	LinearResampler resampler;
-
-	// Generate sine wave
-	const int inputSize = 44100;
-	std::vector<float> input(inputSize);
-	for (int i = 0; i < inputSize; i++) {
-		float t = static_cast<float>(i) / 44100.0f;
-		input[i] = std::sin(2.0f * M_PI * 440.0f * t);
-	}
-
-	std::vector<float> output(resampler.getOutputSize(inputSize));
-	int outputSize = resampler.process(input.data(), inputSize, output.data());
-
-	REQUIRE(outputSize == 22050);
-
-	// Check signal is present
-	float maxVal = 0;
-	for (int i = 0; i < outputSize; i++) {
-		maxVal = std::max(maxVal, std::abs(output[i]));
-	}
-	REQUIRE(maxVal > 0.9f);
 }
 
 TEST_CASE("Resampler streaming mode", "[resampler][streaming]") {

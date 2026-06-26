@@ -333,47 +333,6 @@
 	}
 }
 
-- (nullable NSArray<EngineFrameResult *> *)processAudioForBpm:(NSArray<NSNumber *> *)samples {
-		try {
-			std::vector<float> floatSamples(samples.count);
-			for (NSUInteger i = 0; i < samples.count; i++) {
-				floatSamples[i] = [samples[i] floatValue];
-			}
-
-			std::lock_guard<std::mutex> lock(_engineMutex);
-			if (!_engine || !_engine->isReady() || samples.count == 0) {
-				return @[];
-			}
-
-		// Process audio at 22050 Hz (BPM only, no key detection)
-		int maxResults = static_cast<int>(_resultBuffer.size());
-		int numResults = _engine->processAudioForBpm(floatSamples.data(),
-		                                             static_cast<int>(floatSamples.size()),
-		                                             _resultBuffer.data(),
-		                                             maxResults);
-
-			if (numResults == 0) {
-				return @[];
-			}
-
-		NSMutableArray<EngineFrameResult *> *results = [NSMutableArray arrayWithCapacity:numResults];
-		for (int i = 0; i < numResults; i++) {
-			EngineFrameResult *result = [[EngineFrameResult alloc] init];
-			result.beatActivation = _resultBuffer[i].beatActivation;
-			result.downbeatActivation = _resultBuffer[i].downbeatActivation;
-			[results addObject:result];
-		}
-
-		return results;
-	} catch (const std::exception& e) {
-		NSLog(@"[EngineBridge] processAudioForBpm failed with C++ exception: %s", e.what());
-		return nil;
-	} catch (...) {
-		NSLog(@"[EngineBridge] processAudioForBpm failed with unknown exception");
-		return nil;
-	}
-}
-
 // Note: These are hardcoded to avoid C++ static initialization issues in release builds
 
 + (int)sampleRate {

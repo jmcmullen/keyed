@@ -33,7 +33,6 @@ public class EngineModule: Module {
 	private var processedChunkCount = 0
 	private var stateEmitCount = 0
 	private var visualEmitCount = 0
-	private var lastAudioStatsLogTime: TimeInterval = 0
 
 	// FFT setup for frequency analysis
 	private let fftSize = 256
@@ -348,7 +347,6 @@ public class EngineModule: Module {
 		lastStateEmitTime = 0
 		lastVisualEmitTime = 0
 		lastWaveformEmitTime = 0
-		lastAudioStatsLogTime = 0
 
 		let sink = AVAudioSinkNode { [weak self] _, frames, data in
 			_ = self?.inputBuffer.write(data, frameCount: frames)
@@ -481,8 +479,7 @@ public class EngineModule: Module {
 		let now = Date().timeIntervalSince1970
 		let timestamp = now - recordingStartTime
 		processedChunkCount += 1
-		if processedChunkCount <= 3 || now - lastAudioStatsLogTime >= 1 {
-			lastAudioStatsLogTime = now
+		if processedChunkCount <= 3 {
 			let stats = sampleStats(samples, count: count)
 			debugLog("Processed audio - chunks: \(processedChunkCount), count: \(count), peak: \(stats.peak), rms: \(stats.rms), hasState: \(hasState), frames: \(bridge.getFrameCount()), bpm: \(bridge.getBpm()), beat: \(beatActivation), downbeat: \(downbeatActivation)")
 		}
@@ -575,7 +572,7 @@ public class EngineModule: Module {
 				let bands = computeFrequencyBands(orderedSamples)
 
 				waveformEmitCount += 1
-				if waveformEmitCount <= 3 || waveformEmitCount % 12 == 0 {
+				if waveformEmitCount <= 3 {
 					debugLog("Waveform emit \(waveformEmitCount) - peak: \(peak), rms: \(rms), bands: \(bands), samples: \(downsampledPoints.count)")
 				}
 				sendEvent("onWaveform", [

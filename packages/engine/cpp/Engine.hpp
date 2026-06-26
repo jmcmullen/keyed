@@ -155,7 +155,7 @@ public:
 	static constexpr int KEY_LIVE_FRAMES = 50;         // Primary live window (~10 sec)
 	static constexpr int KEY_STABLE_FRAMES = 100;      // Stability window (~20 sec)
 	static constexpr int KEY_MIN_FRAMES = KEY_FAST_FRAMES;
-	static constexpr int KEY_INFERENCE_INTERVAL = 5;   // Run inference every N new frames (~1 sec)
+	static constexpr int KEY_INFERENCE_INTERVAL = 25;  // Run inference every N new frames (~5 sec)
 	static constexpr int KEY_MAX_FRAMES = 1200;        // Keep last 4 minutes at 5 FPS
 
 private:
