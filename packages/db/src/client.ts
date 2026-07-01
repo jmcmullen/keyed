@@ -1,5 +1,6 @@
 import { drizzle } from "drizzle-orm/expo-sqlite";
 import { deleteDatabaseSync, openDatabaseSync } from "expo-sqlite";
+import { log } from "./log";
 import * as schema from "./schema";
 
 export const DATABASE = "keyed.db";
@@ -19,12 +20,26 @@ export function resetDatabase() {
 	try {
 		client.expo.closeSync();
 	} catch (err: unknown) {
-		console.error("[db] close before reset failed", err);
+		log.error(
+			{
+				action: "db.reset.close.error",
+				surface: "db-client",
+				database: DATABASE,
+			},
+			err,
+		);
 	}
 	try {
 		deleteDatabaseSync(DATABASE);
 	} catch (err: unknown) {
-		console.error("[db] delete during reset failed", err);
+		log.error(
+			{
+				action: "db.reset.delete.error",
+				surface: "db-client",
+				database: DATABASE,
+			},
+			err,
+		);
 	}
 	client = open();
 	db = client.db;

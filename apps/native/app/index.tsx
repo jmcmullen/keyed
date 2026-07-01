@@ -1,6 +1,6 @@
 import { useDb } from "@keyed/db";
 import { addEngineListener } from "@keyed/engine";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useRef } from "react";
 import { Pressable, Text, View } from "react-native";
 import Animated, {
 	useAnimatedStyle,
@@ -15,6 +15,7 @@ import type { BeatAuraPalette } from "@/components/beat-aura";
 import { BeatAura } from "@/components/beat-aura";
 import { useEngine } from "@/hooks/use-engine";
 import { buttonText, shouldReset } from "@/lib/beatnet-state";
+import { log } from "@/lib/log";
 import { buildSave } from "@/lib/session-save";
 
 type Tone = {
@@ -75,7 +76,7 @@ export default function BeatNetScreen() {
 		stopListening,
 		reset,
 	} = useEngine();
-	const [startedAt, setStartedAt] = useState<number | null>(null);
+	const startedAt = useRef<number | null>(null);
 	const active = useSharedValue(0);
 	const beat = useSharedValue(0);
 	const down = useSharedValue(0);
@@ -138,25 +139,35 @@ export default function BeatNetScreen() {
 		};
 	});
 
-	const handleStop = useCallback(async () => {
+	const handleStop = async () => {
 		const stopped = stopListening();
 		if (!stopped) return;
-		setStartedAt(null);
 		const save = buildSave({
 			now: Date.now(),
-			startedAt,
+			startedAt: startedAt.current,
 			result,
 			key,
 		});
+		startedAt.current = null;
 		if (!save.ok) {
 			return;
 		}
 		try {
 			await db.addDetection(save.row);
 		} catch (err: unknown) {
-			console.error("[BeatNetScreen] save failed", err);
+			log.error(
+				{
+					action: "history.detection_save.error",
+					surface: "beatnet-screen",
+					duration: save.row.duration,
+					bpm: save.row.bpm,
+					key: save.row.key,
+					camelotCode: save.row.camelotCode,
+				},
+				err,
+			);
 		}
-	}, [stopListening, startedAt, result, key, db]);
+	};
 
 	const handlePress = async () => {
 		if (isBusy || status === "initializing") return;
@@ -169,7 +180,7 @@ export default function BeatNetScreen() {
 		}
 		const started = await startListening();
 		if (!started) return;
-		setStartedAt(Date.now());
+		startedAt.current = Date.now();
 	};
 
 	const bpmDisplay = result?.bpm ? result.bpm.toFixed(1) : "---.-";
@@ -312,8 +323,6 @@ const styles = StyleSheet.create((theme) => ({
 	},
 	metricCard: {
 		flex: 1,
-		borderRadius: theme.borderRadius.md,
-		backgroundColor: theme.colors.surface.overlayStrong,
 		paddingVertical: theme.spacing.md,
 		alignItems: "center",
 	},

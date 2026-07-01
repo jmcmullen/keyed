@@ -54,7 +54,3 @@ export function tapClose(state: TapState): TapState {
 		last: null,
 	};
 }
-
-export function tapReset(): TapState {
-	return tapInit();
-}

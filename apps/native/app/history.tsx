@@ -4,6 +4,7 @@ import { Alert, FlatList, Pressable, Text, View } from "react-native";
 import Swipeable from "react-native-gesture-handler/Swipeable";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { StyleSheet } from "react-native-unistyles";
+import { log } from "@/lib/log";
 
 function formatWhen(value: Date): string {
 	const diff = Date.now() - value.getTime();
@@ -13,14 +14,20 @@ function formatWhen(value: Date): string {
 	return value.toLocaleString();
 }
 
+function fail(err: unknown) {
+	log.error(
+		{
+			action: "history.database_action.error",
+			surface: "history-screen",
+		},
+		err,
+	);
+	Alert.alert("History update failed", "Please try again.");
+}
+
 export default function HistoryScreen() {
 	const db = useDb();
 	const [busy, setBusy] = useState(false);
-
-	const fail = (err: unknown) => {
-		console.error("[HistoryScreen] database action failed", err);
-		Alert.alert("History update failed", "Please try again.");
-	};
 
 	const clearDb = () => {
 		if (busy) return;

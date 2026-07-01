@@ -1,16 +1,19 @@
 import { desc, eq, inArray } from "drizzle-orm";
-import { useMigrations } from "drizzle-orm/expo-sqlite/migrator";
+import { migrate } from "drizzle-orm/expo-sqlite/migrator";
 import { randomUUID } from "expo-crypto";
 import {
 	createContext,
+	use,
 	useCallback,
-	useContext,
 	useEffect,
+	useMemo,
+	useReducer,
 	useState,
 } from "react";
 import { Text, View } from "react-native";
 import migrations from "../drizzle/migrations";
 import { db, resetDatabase } from "./client";
+import { log } from "./log";
 import { type Detection, detections, type NewDetection } from "./schema";
 
 interface DbContextValue {
@@ -23,41 +26,76 @@ interface DbContextValue {
 const DbContext = createContext<DbContextValue | null>(null);
 const LIMIT = 2_000;
 
-export function DbProvider({ children }: { children: React.ReactNode }) {
-	const [attempt, setAttempt] = useState(0);
-	const [wiped, setWiped] = useState(false);
-	const reset = useCallback(() => {
-		setWiped(true);
-		setAttempt((value) => value + 1);
-	}, []);
+type Migration = {
+	attempt: number;
+	status: "loading" | "resetting" | "ready" | "failed";
+	wiped: boolean;
+};
 
-	return (
-		<DbProviderAttempt key={attempt} wiped={wiped} reset={reset}>
-			{children}
-		</DbProviderAttempt>
-	);
+function migration(
+	state: Migration,
+	action: "start" | "ready" | "retry" | "failed",
+): Migration {
+	if (action === "start") {
+		return { ...state, status: "loading" };
+	}
+	if (action === "ready") {
+		return { ...state, status: "ready" };
+	}
+	if (action === "retry") {
+		return {
+			attempt: state.attempt + 1,
+			status: "resetting",
+			wiped: true,
+		};
+	}
+	return { ...state, status: "failed" };
 }
 
-function DbProviderAttempt({
-	children,
-	wiped,
-	reset,
-}: {
-	children: React.ReactNode;
-	wiped: boolean;
-	reset: () => void;
-}) {
-	const { success: isReady, error } = useMigrations(db, migrations);
+export function DbProvider({ children }: { children: React.ReactNode }) {
+	const [state, dispatch] = useReducer(migration, {
+		attempt: 0,
+		status: "loading",
+		wiped: false,
+	});
+	const recover = useCallback(() => {
+		dispatch("retry");
+	}, []);
 
 	useEffect(() => {
-		if (!error) return;
-		console.error("[db] migration failed", error);
-		if (wiped) return;
-		resetDatabase();
-		reset();
-	}, [error, reset, wiped]);
+		let live = true;
 
-	if (!isReady && !error) {
+		dispatch("start");
+		void migrate(db, migrations)
+			.then(() => {
+				if (!live) return;
+				dispatch("ready");
+			})
+			.catch((err: unknown) => {
+				if (!live) return;
+				log.error(
+					{
+						action: "db.migration.error",
+						surface: "db-provider",
+						attempt: state.attempt,
+						wiped: state.wiped,
+					},
+					err,
+				);
+				if (state.wiped) {
+					dispatch("failed");
+					return;
+				}
+				resetDatabase();
+				recover();
+			});
+
+		return () => {
+			live = false;
+		};
+	}, [recover, state.attempt, state.wiped]);
+
+	if (state.status === "loading") {
 		return (
 			<View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
 				<Text style={{ color: "#888888" }}>Loading...</Text>
@@ -65,7 +103,7 @@ function DbProviderAttempt({
 		);
 	}
 
-	if (error && !wiped) {
+	if (state.status === "resetting") {
 		return (
 			<View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
 				<Text style={{ color: "#888888" }}>Resetting database...</Text>
@@ -73,7 +111,7 @@ function DbProviderAttempt({
 		);
 	}
 
-	if (error) {
+	if (state.status === "failed") {
 		return (
 			<View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
 				<Text style={{ color: "#ff453a" }}>Database setup failed</Text>
@@ -81,7 +119,7 @@ function DbProviderAttempt({
 		);
 	}
 
-	return <DbProviderInner recover={reset}>{children}</DbProviderInner>;
+	return <DbProviderInner recover={recover}>{children}</DbProviderInner>;
 }
 
 function DbProviderInner({
@@ -93,17 +131,19 @@ function DbProviderInner({
 }) {
 	const [detectionsData, setDetectionsData] = useState<Detection[]>([]);
 
-	const log = useCallback((message: string, err: unknown): void => {
-		console.error(`[db] ${message}`, err);
-	}, []);
-
 	const fail = useCallback(
-		(message: string, err: unknown): void => {
-			log(message, err);
+		(action: string, err: unknown): void => {
+			log.error(
+				{
+					action,
+					surface: "db-provider",
+				},
+				err,
+			);
 			resetDatabase();
 			recover();
 		},
-		[log, recover],
+		[recover],
 	);
 
 	const refetch = useCallback(async (): Promise<void> => {
@@ -117,7 +157,7 @@ function DbProviderInner({
 
 	useEffect(() => {
 		void refetch().catch((err: unknown) => {
-			fail("refetch failed", err);
+			fail("db.detection_refetch.error", err);
 		});
 	}, [refetch, fail]);
 
@@ -149,7 +189,7 @@ function DbProviderInner({
 						.slice(0, LIMIT),
 				);
 			} catch (err: unknown) {
-				fail("add detection failed", err);
+				fail("db.detection_add.error", err);
 				throw err;
 			}
 		},
@@ -162,7 +202,7 @@ function DbProviderInner({
 				await db.delete(detections).where(eq(detections.id, id));
 				setDetectionsData((list) => list.filter((item) => item.id !== id));
 			} catch (err: unknown) {
-				fail("delete detection failed", err);
+				fail("db.detection_delete.error", err);
 				throw err;
 			}
 		},
@@ -174,27 +214,26 @@ function DbProviderInner({
 			await db.delete(detections);
 			setDetectionsData([]);
 		} catch (err: unknown) {
-			fail("clear history failed", err);
+			fail("db.history_clear.error", err);
 			throw err;
 		}
 	}, [fail]);
 
-	return (
-		<DbContext.Provider
-			value={{
-				detections: detectionsData,
-				addDetection,
-				deleteDetection,
-				clearHistory,
-			}}
-		>
-			{children}
-		</DbContext.Provider>
+	const value = useMemo(
+		() => ({
+			detections: detectionsData,
+			addDetection,
+			deleteDetection,
+			clearHistory,
+		}),
+		[detectionsData, addDetection, deleteDetection, clearHistory],
 	);
+
+	return <DbContext.Provider value={value}>{children}</DbContext.Provider>;
 }
 
 export function useDb(): DbContextValue {
-	const context = useContext(DbContext);
+	const context = use(DbContext);
 	if (!context) {
 		throw new Error("useDb must be used within a DbProvider");
 	}

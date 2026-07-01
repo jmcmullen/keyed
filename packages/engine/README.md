@@ -1,41 +1,40 @@
 # @keyed/engine
 
-Native real-time BPM and key detection engine used by the Keyed app.
+The part that does the actual listening. This is the native engine behind Keyed: real-time BPM and key detection written in C++, with a thin Expo module on top so React Native can talk to it.
 
-## What it contains
+## What is in here
 
-- `cpp/`: shared DSP + inference core (BPM + key detection)
-- `android/`: Expo module wrapper + JNI bridge
-- `ios/`: Expo module wrapper + Objective-C++ bridge
-- `src/`: TypeScript module interface consumed by React Native
-- `tests/`: C++ unit/integration tests (Catch2)
-- `models/`: ONNX model files bundled into native builds
-- `docs/`: architecture, BPM, and key detection notes
+- `cpp/`: the shared DSP and inference core, where BPM and key detection actually happen
+- `android/`: Expo module wrapper and JNI bridge
+- `ios/`: Expo module wrapper and Objective-C++ bridge
+- `src/`: the TypeScript interface React Native consumes
+- `tests/`: C++ unit and integration tests (Catch2)
+- `models/`: the ONNX model files bundled into native builds
 
 ## Docs
 
-- [Architecture](docs/architecture.md)
-- [BeatNet BPM implementation](docs/beatnet.md)
-- [Key detection implementation](docs/key-detection.md)
+- [Architecture](../../docs/architecture.md)
+- [BPM detection implementation](../../docs/bpm-detection.md)
+- [Key detection implementation](../../docs/key-detection.md)
 
-## Local development
+## Running it locally
 
-From repository root:
+From the repository root:
 
 ```bash
 bun run test:native:build
 bun run test:native:run
 ```
 
-`packages/engine/tests/CMakeLists.txt` downloads ONNX Runtime with pinned SHA-256 checksums.
+`packages/engine/tests/CMakeLists.txt` downloads ONNX Runtime against pinned SHA-256 checksums, so the build you get is the build everyone else gets.
 
-## Public module API
+## The public module API
 
-The Expo module exposes:
+The Expo module hands React Native three sorts of things:
 
-- model lifecycle: `loadModel()`, `loadKeyModel()`, `isReady()`, `isKeyReady()`, `reset()`
-- recording lifecycle: `requestPermission()`, `startRecording()`, `stopRecording()`
-- state queries: `getBpm()` returns the stabilized decimal BPM estimate with DJ-range half/double-time correction, `getBpmConfidence()` returns a 0-1 tempo confidence score, plus `getFrameCount()`, `getKey()`, `getKeyFrameCount()`
-- events: `onState`, `onWaveform`, `onKey`
+- **Model lifecycle:** `loadModel()`, `loadKeyModel()`, `isReady()`, `isKeyReady()`, `reset()`
+- **Recording lifecycle:** `requestPermission()`, `startRecording()`, `stopRecording()`
+- **State queries:** `getBpm()` returns the stabilised decimal BPM with DJ-range half/double-time correction already applied, `getBpmConfidence()` returns a 0-1 tempo confidence, plus `getFrameCount()`, `getKey()`, and `getKeyFrameCount()`
+- **Events:** `onState`, `onWaveform`, `onKey`
 
 See `src/Engine.types.ts` for the event payload contracts.

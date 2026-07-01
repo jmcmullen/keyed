@@ -3,6 +3,7 @@ import EngineModule from "@keyed/engine";
 import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { resolvePermission } from "@/lib/engine-permission";
+import { log } from "@/lib/log";
 
 export type DetectionStatus =
 	| "idle"
@@ -41,18 +42,27 @@ export interface UseEngineReturn {
 const RESULT_UPDATE_INTERVAL = 100;
 const BPM_POLL_INTERVAL = 500;
 const KEY_EVENT_INTERVAL = 100;
-const HEALTH_DELAY = 2_500;
+const PERF_LOG_INTERVAL = 5_000;
+const EXPECTED_BPM = 128;
+const EXPECTED_CAMELOT = "10A";
 
-function log(msg: string, data?: Record<string, unknown>) {
-	if (data) {
-		console.info(`[useEngine] ${msg}`, data);
-		return;
-	}
-	console.info(`[useEngine] ${msg}`);
+type Session = {
+	id: string;
+	startedAt: number;
+	lastLogAt: number;
+	lastFrameCount: number;
+	lastKeyFrameCount: number;
+	lastStateCount: number;
+	lastWaveformCount: number;
+	lastKeyCount: number;
+};
+
+function round(value: number): number {
+	return Math.round(value * 1000) / 1000;
 }
 
 export function useEngine(): UseEngineReturn {
-	const [status, setStatus] = useState<DetectionStatus>("idle");
+	const [status, setStatus] = useState<DetectionStatus>("initializing");
 	const [result, setResult] = useState<BeatNetResult | null>(null);
 	const [key, setKey] = useState<KeyState | null>(null);
 	const [isBusy, setIsBusy] = useState(false);
@@ -65,26 +75,36 @@ export function useEngine(): UseEngineReturn {
 	const lastBpmPollRef = useRef<number>(0);
 	const lastKeyUpdateRef = useRef<number>(0);
 	const resultRef = useRef(result);
+	const keyRef = useRef(key);
 	const isListeningRef = useRef(false);
 	const busyRef = useRef(false);
 	const stateCountRef = useRef(0);
 	const waveformCountRef = useRef(0);
 	const keyCountRef = useRef(0);
 	const levelRef = useRef(0);
+	const stateTimestampRef = useRef(0);
+	const sessionRef = useRef<Session | null>(null);
+	const perfTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-	resultRef.current = result;
+	useEffect(() => {
+		resultRef.current = result;
+	}, [result]);
 
-	const lock = useCallback(() => {
+	useEffect(() => {
+		keyRef.current = key;
+	}, [key]);
+
+	const lock = () => {
 		busyRef.current = true;
 		setIsBusy(true);
-	}, []);
+	};
 
-	const unlock = useCallback(() => {
+	const unlock = () => {
 		busyRef.current = false;
 		setIsBusy(false);
-	}, []);
+	};
 
-	const clear = useCallback(() => {
+	const clear = () => {
 		latestBpmRef.current = 0;
 		latestBpmConfidenceRef.current = 0;
 		lastResultUpdateRef.current = 0;
@@ -94,19 +114,128 @@ export function useEngine(): UseEngineReturn {
 		waveformCountRef.current = 0;
 		keyCountRef.current = 0;
 		levelRef.current = 0;
+		stateTimestampRef.current = 0;
 		setResult(null);
 		setKey(null);
+	};
+
+	const logPerf = useCallback((phase: string) => {
+		const session = sessionRef.current;
+		if (!session) return;
+
+		const now = Date.now();
+		const elapsedSec = Math.max((now - session.startedAt) / 1000, 0.001);
+		const windowSec = Math.max((now - session.lastLogAt) / 1000, 0.001);
+		const frameCount = EngineModule.getFrameCount();
+		const keyFrameCount = EngineModule.getKeyFrameCount();
+		const bpm = EngineModule.getBpm();
+		const bpmConfidence = EngineModule.getBpmConfidence();
+		const stateDelta = stateCountRef.current - session.lastStateCount;
+		const waveformDelta = waveformCountRef.current - session.lastWaveformCount;
+		const keyDelta = keyCountRef.current - session.lastKeyCount;
+		const frameDelta = frameCount - session.lastFrameCount;
+		const keyFrameDelta = keyFrameCount - session.lastKeyFrameCount;
+		const currentKey = EngineModule.getKey() ?? keyRef.current;
+		const bpmError = bpm > 0 ? round(bpm - EXPECTED_BPM) : null;
+
+		log.info({
+			action: "engine.recording.metrics",
+			surface: "use-engine",
+			phase,
+			sessionId: session.id,
+			elapsedSec: round(elapsedSec),
+			windowSec: round(windowSec),
+			expectedBpm: EXPECTED_BPM,
+			expectedCamelot: EXPECTED_CAMELOT,
+			bpm: bpm > 0 ? round(bpm) : 0,
+			bpmConfidence: round(bpmConfidence),
+			bpmError,
+			bpmAbsError: bpmError === null ? null : Math.abs(bpmError),
+			camelot: currentKey?.camelot ?? null,
+			notation: currentKey?.notation ?? null,
+			keyConfidence: currentKey ? round(currentKey.confidence) : null,
+			keyMatchesExpected: currentKey
+				? currentKey.camelot === EXPECTED_CAMELOT
+				: null,
+			frameCount,
+			frameDelta,
+			frameRate: round(frameDelta / windowSec),
+			expectedFrameRate: EngineModule.BPM_FPS,
+			keyFrameCount,
+			keyFrameDelta,
+			keyFrameRate: round(keyFrameDelta / windowSec),
+			expectedKeyFrameRate: EngineModule.KEY_FPS,
+			stateEvents: stateCountRef.current,
+			stateEventDelta: stateDelta,
+			stateEventRate: round(stateDelta / windowSec),
+			waveformEvents: waveformCountRef.current,
+			waveformEventDelta: waveformDelta,
+			waveformEventRate: round(waveformDelta / windowSec),
+			keyEvents: keyCountRef.current,
+			keyEventDelta: keyDelta,
+			keyEventRate: round(keyDelta / windowSec),
+			rms: round(levelRef.current),
+			stateClockLagSec:
+				stateTimestampRef.current > 0
+					? round(elapsedSec - stateTimestampRef.current)
+					: null,
+			recording: EngineModule.isRecording(),
+			native: EngineModule.getDebugState?.() ?? null,
+		});
+
+		session.lastLogAt = now;
+		session.lastFrameCount = frameCount;
+		session.lastKeyFrameCount = keyFrameCount;
+		session.lastStateCount = stateCountRef.current;
+		session.lastWaveformCount = waveformCountRef.current;
+		session.lastKeyCount = keyCountRef.current;
 	}, []);
 
+	const startPerf = useCallback(() => {
+		const now = Date.now();
+		if (perfTimerRef.current) {
+			clearInterval(perfTimerRef.current);
+		}
+		sessionRef.current = {
+			id: String(now),
+			startedAt: now,
+			lastLogAt: now,
+			lastFrameCount: 0,
+			lastKeyFrameCount: 0,
+			lastStateCount: 0,
+			lastWaveformCount: 0,
+			lastKeyCount: 0,
+		};
+		perfTimerRef.current = setInterval(() => {
+			logPerf("sample");
+		}, PERF_LOG_INTERVAL);
+	}, [logPerf]);
+
+	const stopPerf = useCallback(
+		(phase: string) => {
+			if (perfTimerRef.current) {
+				clearInterval(perfTimerRef.current);
+				perfTimerRef.current = null;
+			}
+			logPerf(phase);
+			sessionRef.current = null;
+		},
+		[logPerf],
+	);
+
 	useEffect(() => {
-		setStatus("initializing");
 		let live = true;
 
-		log("loading models");
+		log.info({
+			action: "engine.model_load.start",
+			surface: "use-engine",
+		});
 		void Promise.all([EngineModule.loadModel(), EngineModule.loadKeyModel()])
 			.then(([loaded, loadedKey]) => {
 				if (!live) return;
-				log("models loaded", {
+				log.info({
+					action: "engine.model_load.finish",
+					surface: "use-engine",
 					loaded,
 					loadedKey,
 					ready: EngineModule.isReady(),
@@ -125,7 +254,14 @@ export function useEngine(): UseEngineReturn {
 					err instanceof Error
 						? err.message
 						: "Failed to load native detection models";
-				log("model load failed", { message });
+				log.error(
+					{
+						action: "engine.model_load.error",
+						surface: "use-engine",
+						message,
+					},
+					err,
+				);
 				setError(message);
 				setStatus("error");
 			});
@@ -142,6 +278,7 @@ export function useEngine(): UseEngineReturn {
 				if (!isListeningRef.current) return;
 
 				stateCountRef.current += 1;
+				stateTimestampRef.current = event.timestamp;
 
 				const now = Date.now();
 				const shouldPollBpm = now - lastBpmPollRef.current >= BPM_POLL_INTERVAL;
@@ -224,19 +361,21 @@ export function useEngine(): UseEngineReturn {
 
 	useEffect(() => {
 		return () => {
-			isListeningRef.current = false;
+			stopPerf("unmount");
 			EngineModule.stopRecording();
 			EngineModule.reset();
 		};
-	}, []);
+	}, [stopPerf]);
 
-	const startListening = useCallback(async () => {
+	const startListening = async () => {
 		if (busyRef.current || isListeningRef.current) {
 			return false;
 		}
 		lock();
-		try {
-			log("start requested", {
+		return await (async () => {
+			log.info({
+				action: "engine.recording.start_requested",
+				surface: "use-engine",
 				ready: EngineModule.isReady(),
 				keyReady: EngineModule.isKeyReady(),
 				recording: EngineModule.isRecording(),
@@ -251,7 +390,11 @@ export function useEngine(): UseEngineReturn {
 			setError(null);
 
 			const permission = EngineModule.getPermissionStatus();
-			log("permission checked", { permission });
+			log.info({
+				action: "engine.permission.checked",
+				surface: "use-engine",
+				permission,
+			});
 			const permissionResult = await resolvePermission(
 				permission,
 				() => EngineModule.requestPermission() as Promise<unknown>,
@@ -259,7 +402,11 @@ export function useEngine(): UseEngineReturn {
 			if (!permissionResult.granted) {
 				const message = permissionResult.err || "Microphone permission denied";
 				if (permissionResult.err) {
-					console.error("[useEngine] Permission error:", message);
+					log.error({
+						action: "engine.permission.error",
+						surface: "use-engine",
+						message,
+					});
 				}
 				setError(message);
 				setStatus("error");
@@ -278,7 +425,9 @@ export function useEngine(): UseEngineReturn {
 							? err.message
 							: "Failed to start native audio recording",
 				}));
-			log("start result", {
+			log.info({
+				action: "engine.recording.start_result",
+				surface: "use-engine",
 				started: startResult.started,
 				err: startResult.err,
 				recording: EngineModule.isRecording(),
@@ -289,7 +438,11 @@ export function useEngine(): UseEngineReturn {
 				const message =
 					startResult.err || "Failed to start native audio recording";
 				if (startResult.err) {
-					console.error("[useEngine] Start error:", message);
+					log.error({
+						action: "engine.recording.start_error",
+						surface: "use-engine",
+						message,
+					});
 				}
 				setError(message);
 				setStatus("error");
@@ -298,66 +451,47 @@ export function useEngine(): UseEngineReturn {
 
 			setIsListening(true);
 			setStatus("listening");
-			setTimeout(() => {
-				if (!isListeningRef.current) return;
-				log("health", {
-					recording: EngineModule.isRecording(),
-					frameCount: EngineModule.getFrameCount(),
-					bpm: EngineModule.getBpm(),
-					bpmConfidence: EngineModule.getBpmConfidence(),
-					stateEvents: stateCountRef.current,
-					waveformEvents: waveformCountRef.current,
-					keyEvents: keyCountRef.current,
-					rms: levelRef.current,
-					native: EngineModule.getDebugState?.() ?? null,
-				});
-			}, HEALTH_DELAY);
+			startPerf();
 			return true;
-		} finally {
-			unlock();
-		}
-	}, [clear, lock, unlock]);
+		})().finally(unlock);
+	};
 
-	const stopListening = useCallback(() => {
+	const stopListening = () => {
 		if (busyRef.current || !isListeningRef.current) {
 			return false;
 		}
 		lock();
-		try {
+		stopPerf("stop");
+		isListeningRef.current = false;
+		setIsListening(false);
+		setStatus(
+			resultRef.current?.bpm && resultRef.current.bpm > 0 ? "detected" : "idle",
+		);
+		EngineModule.stopRecording();
+		unlock();
+		return true;
+	};
+
+	useFocusEffect(() => {
+		return () => {
+			if (!isListeningRef.current) return;
+			stopPerf("blur");
 			isListeningRef.current = false;
+			EngineModule.stopRecording();
 			setIsListening(false);
 			setStatus(
 				resultRef.current?.bpm && resultRef.current.bpm > 0
 					? "detected"
 					: "idle",
 			);
-			EngineModule.stopRecording();
-			return true;
-		} finally {
-			unlock();
-		}
-	}, [lock, unlock]);
+		};
+	});
 
-	useFocusEffect(
-		useCallback(() => {
-			return () => {
-				if (!isListeningRef.current) return;
-				isListeningRef.current = false;
-				EngineModule.stopRecording();
-				setIsListening(false);
-				setStatus(
-					resultRef.current?.bpm && resultRef.current.bpm > 0
-						? "detected"
-						: "idle",
-				);
-			};
-		}, []),
-	);
-
-	const reset = useCallback(() => {
+	const reset = () => {
 		if (busyRef.current) {
 			return;
 		}
+		stopPerf("reset");
 		isListeningRef.current = false;
 		EngineModule.stopRecording();
 		EngineModule.reset();
@@ -365,7 +499,7 @@ export function useEngine(): UseEngineReturn {
 		setStatus("idle");
 		setIsListening(false);
 		setError(null);
-	}, [clear]);
+	};
 
 	return {
 		status,

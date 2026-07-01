@@ -21,6 +21,8 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.2.0",
+		"evlog": "^2.19.2",
+		"metro": "0.83.2",
 		"onnxruntime-node": "^1.23.2",
 		"turbo": "^2.5.4"
 	},
